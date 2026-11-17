@@ -1,0 +1,28 @@
+packages:
+  - apps/*
+  - packages/*
+
+# ─── Cadena de suministro (ver vault: 03 - Seguridad/Cadena de Suministro) ───
+# Versiones exactas: `pnpm add` guarda "1.2.3", nunca "^1.2.3".
+saveExact: true
+
+# Antigüedad mínima de una versión antes de poder instalarla (minutos = 3 días).
+# Los paquetes maliciosos publicados tras secuestrar una cuenta se retiran en horas.
+minimumReleaseAge: 4320
+# Excepción explícita: parches de seguridad del framework el mismo día.
+# next 16.4.6 se publicó el 2026-11-16 y es el mínimo de seguridad exigido por la
+# especificación. Retirar esta excepción en el siguiente mantenimiento mensual.
+minimumReleaseAgeExclude:
+  - next
+  - "@next/*"
+
+# Solo estas dependencias pueden ejecutar scripts de instalación. Cada entrada se
+# justifica en el PR que la añade. strictDepBuilds hace fallar la instalación si
+# aparece una dependencia con scripts que no está revisada.
+allowBuilds:
+  sharp: true
+  esbuild: true
+strictDepBuilds: true
+
+# Node fijado en .nvmrc; falla si el motor no coincide.
+engineStrict: true

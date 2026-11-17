@@ -1,0 +1,10 @@
+import type { MetadataRoute } from 'next'
+
+/** El panel, el acceso, la API y la pasarela de pruebas no se indexan (además llevan noindex). */
+export default function robots(): MetadataRoute.Robots {
+  return {
+    rules: [
+      { userAgent: '*', allow: '/', disallow: ['/panel', '/acceso', '/api/', '/donar/resultado', '/donar/pasarela-simulada'] },
+    ],
+  }
+}

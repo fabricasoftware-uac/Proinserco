@@ -1,0 +1,66 @@
+/*
+ * SITIO PÚBLICO — dirección "dar la vuelta" (capa 2 + utilidades propias).
+ *
+ * - Pinturas: los colores de la marca como PLANOS a pantalla completa
+ *   (menú en tres capas, persianas, olas, bordes de capas del footer). Son
+ *   semánticos de rol ("pintura de fondo"), no texto: el texto siempre sale
+ *   de --texto/--texto-suave del tema de la sección (contraste.test.ts).
+ * - Familias: display con carácter (Anybody, ancho variable) para los
+ *   titulares gigantes y serif itálica cálida (Instrument Serif) para la
+ *   palabra pequeña de énfasis. Las variables --fuente-* las declara
+ *   apps/web/src/shared/ui/sitio/fuentes-sitio.ts (next/font/local).
+ * - Escala "mega": interlineado apretado sin que las letras se toquen.
+ */
+[data-zona='publico'] {
+  --pintura-bosque: var(--bosque-900);
+  --pintura-bosque-profundo: var(--bosque-950);
+  --pintura-bosque-claro: var(--bosque-800);
+  --pintura-lima: var(--lima-400);
+  --pintura-lima-suave: var(--lima-300);
+  --pintura-crema: var(--crema-100);
+  --pintura-crema-clara: var(--crema-50);
+  --pintura-crema-oscura: var(--crema-300);
+  /* Arena: plano claro distinto del crema para separar secciones claras contiguas. */
+  --pintura-arena: var(--crema-200);
+  --pintura-terracota: var(--terracota-500);
+  --pintura-sol: var(--sol-400);
+  --pintura-cielo: var(--cielo-300);
+  --pintura-tinta: var(--tinta-950);
+  --pintura-hoja: var(--hoja-600);
+  --pintura-hoja-viva: var(--hoja-400);
+  /* Blanco puro: solo para celdas de logos de terceros que traen fondo blanco. */
+  --pintura-blanco: var(--neutro-0);
+
+  /* Las familias se REDECLARAN aquí: --fuente-* las pone next/font en este
+   * mismo elemento y una variable de :root que apunte a ellas se resolvería
+   * en :root, donde aún no existen (la familia caería al respaldo). */
+  --font-titular: var(--fuente-bricolage), ui-sans-serif, system-ui, sans-serif;
+  --font-cuerpo: var(--fuente-instrument), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--fuente-anybody), 'Arial Narrow', ui-sans-serif, system-ui, sans-serif;
+  --font-enfasis: var(--fuente-serif-italica), Georgia, 'Times New Roman', serif;
+}
+
+@theme inline {
+  --font-display: var(--fuente-anybody), 'Arial Narrow', ui-sans-serif, system-ui, sans-serif;
+  --font-enfasis: var(--fuente-serif-italica), Georgia, 'Times New Roman', serif;
+
+  --color-pintura-bosque: var(--pintura-bosque);
+  --color-pintura-bosque-profundo: var(--pintura-bosque-profundo);
+  --color-pintura-bosque-claro: var(--pintura-bosque-claro);
+  --color-pintura-lima: var(--pintura-lima);
+  --color-pintura-lima-suave: var(--pintura-lima-suave);
+  --color-pintura-crema: var(--pintura-crema);
+  --color-pintura-crema-clara: var(--pintura-crema-clara);
+  --color-pintura-crema-oscura: var(--pintura-crema-oscura);
+  --color-pintura-terracota: var(--pintura-terracota);
+  --color-pintura-sol: var(--pintura-sol);
+  --color-pintura-cielo: var(--pintura-cielo);
+  --color-pintura-tinta: var(--pintura-tinta);
+  --color-pintura-hoja: var(--pintura-hoja);
+}
+
+/* Curvas propias del mundo (equivalentes CSS de las de GSAP en movimiento.ts). */
+:root {
+  --curva-telon: cubic-bezier(0.76, 0, 0.24, 1);
+  --curva-salto: cubic-bezier(0.34, 1.56, 0.64, 1);
+}

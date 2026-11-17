@@ -1,0 +1,27 @@
+{
+  "name": "@proinserco/ui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Primitivas neutras compartidas entre apps",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "tailwind-merge": "3.7.0"
+  },
+  "peerDependencies": {
+    "react": "19.3.1"
+  },
+  "devDependencies": {
+    "@proinserco/config": "workspace:*",
+    "@types/react": "19.3.0",
+    "react": "19.3.1",
+    "typescript": "6.0.3",
+    "vitest": "5.1.0"
+  }
+}

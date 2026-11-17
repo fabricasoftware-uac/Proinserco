@@ -1,0 +1,59 @@
+@import 'tailwindcss';
+@import '@proinserco/tokens/index.css';
+
+/* Tailwind solo escanea esta app por defecto: incluir las primitivas compartidas. */
+@source '../../../../packages/ui/src';
+
+/*
+ * Base mínima. Las clases propias reutilizables van SIEMPRE en
+ * @layer components (una regla sin capa gana a cualquier utilidad de
+ * Tailwind 4: Gotchas Verificados).
+ */
+@layer base {
+  html {
+    /* Sin salto al quitar el bloqueo de scroll del loader (Gotchas Verificados). */
+    scrollbar-gutter: stable;
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    min-height: 100dvh;
+  }
+
+  [data-zona='publico'] {
+    background-color: var(--superficie);
+    color: var(--texto);
+    font-family: var(--font-cuerpo);
+    font-size: var(--text-cuerpo);
+    line-height: var(--text-cuerpo--line-height);
+    min-height: 100dvh;
+  }
+
+  [data-zona='panel'] {
+    background-color: var(--superficie);
+    color: var(--texto);
+    font-family: var(--font-sistema);
+    font-size: var(--text-panel-cuerpo);
+    font-variant-numeric: tabular-nums;
+    min-height: 100dvh;
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--foco, currentColor);
+    outline-offset: 2px;
+  }
+
+  /* Durante el cambio de tema, nada de transiciones de color (las hace la View Transition). */
+  [data-cambiando-tema] * {
+    transition: none !important;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      scroll-behavior: auto !important;
+    }
+  }
+}

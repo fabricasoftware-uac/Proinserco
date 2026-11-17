@@ -1,0 +1,53 @@
+/*
+ * CAPA 3 — COMPONENTES
+ * Ajustes propios de una pieza. Solo leen variables semánticas (capa 2).
+ * Los componentes visuales los construyen otros agentes; aquí solo se
+ * reservan los nombres para que todos hablen el mismo idioma.
+ */
+:root {
+  /* Marco crema con el sitio "dentro" */
+  --marco-fondo: var(--superficie);
+  --marco-radio: var(--radius-marco);
+  --marco-margen: var(--spacing-marco);
+
+  /* Navbar en pastilla (el tema lo decide la sección vía data-nav-theme) */
+  --nav-fondo: var(--superficie-elevada);
+  --nav-texto: var(--texto);
+  --nav-radio: var(--radius-pastilla);
+
+  /* Botones */
+  --boton-primario-fondo: var(--acento);
+  --boton-primario-texto: var(--sobre-acento);
+  --boton-radio: var(--radius-pastilla);
+
+  /* Tarjetas bento */
+  --tarjeta-fondo: var(--superficie);
+  --tarjeta-texto: var(--texto);
+  --tarjeta-radio: var(--radius-tarjeta);
+
+  /* Panel */
+  --panel-barra-lateral-fondo: color-mix(in oklab, var(--superficie) 72%, transparent);
+  --panel-cabecera-fondo: color-mix(in oklab, var(--superficie) 78%, transparent);
+  --panel-tarjeta-sombra: 0 0 0 1px rgb(18 24 20 / 0.04), 0 1px 2px rgb(18 24 20 / 0.05), 0 6px 16px -8px rgb(18 24 20 / 0.08);
+
+  /* Anillo de foco visible y consistente */
+  --foco-anillo: 0 0 0 3px var(--foco);
+}
+
+:root[data-tema='oscuro'] [data-zona='panel'] {
+  /* En oscuro las sombras no se ven: la elevación la dan las superficies */
+  --panel-tarjeta-sombra: 0 0 0 1px rgb(255 255 255 / 0.05);
+  --panel-barra-lateral-fondo: color-mix(in oklab, var(--superficie) 70%, transparent);
+}
+
+/* Movimiento reducido: las duraciones colapsan para todos los consumidores
+ * (CSS y GSAP leyendo la variable). La lógica de cada animación sigue
+ * obligada a comprobar prefers-reduced-motion (vault: Animación y Movimiento). */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duracion-rapida: 1ms;
+    --duracion-media: 1ms;
+    --duracion-lenta: 1ms;
+    --duracion-escena: 1ms;
+  }
+}

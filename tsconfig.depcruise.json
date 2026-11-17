@@ -1,0 +1,13 @@
+{
+  "//": "Solo para dependency-cruiser: resuelve el alias @/* desde la raíz del monorepo (Gotchas Verificados).",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": { "@/*": ["apps/web/src/*"] },
+    "jsx": "preserve",
+    "allowJs": false,
+    "resolveJsonModule": true,
+    "moduleResolution": "bundler",
+    "module": "esnext"
+  },
+  "include": ["apps/web/src/**/*.ts", "apps/web/src/**/*.tsx", "packages/*/src/**/*.ts", "packages/*/src/**/*.tsx"]
+}

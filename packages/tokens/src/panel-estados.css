@@ -1,0 +1,106 @@
+/*
+ * Tokens propios del PANEL: estados (aros), materiales por elevacion y los
+ * tonos de marca que el panel usa con intencion. Capa aparte para no tocar los
+ * bloques que lee el test de contraste de semanticos.css.
+ *
+ * Contraste verificado (scripts del rediseño del panel, WCAG 2.x):
+ *  - *-texto sobre superficie, nivel-1 y su *-fondo >= 4.5:1
+ *  - *-punto (aros, barras, acentos laterales) >= 3:1 sobre superficie y nivel-1
+ *  - sobre-marca-profunda / marca-profunda >= 7:1; sobre-lima / lima >= 7:1
+ * Solo se usan dentro de [data-zona='panel'] (claro por defecto, oscuro con <html data-tema>).
+ */
+[data-zona='panel'] {
+  /* Estados: aprobada (ok), pendiente (aviso), rechazada (malo, terracota),
+     creada/expirada (neutro), reembolsada (info), contracargo (contra, rojo). */
+  --est-ok-fondo: #e3f1da;
+  --est-ok-texto: #0f5c0a;
+  --est-ok-punto: #2f8f1f;
+  --est-aviso-fondo: #fbefd2;
+  --est-aviso-texto: #724500;
+  --est-aviso-punto: #b77900;
+  --est-malo-fondo: #fbe6dc;
+  --est-malo-texto: #973310;
+  --est-malo-punto: #cf521b;
+  --est-neutro-fondo: #ebeae4;
+  --est-neutro-texto: #4b524c;
+  --est-neutro-punto: #868d86;
+  --est-info-fondo: #e1ebf4;
+  --est-info-texto: #174874;
+  --est-info-punto: #2f6fa8;
+  --est-contra-fondo: #f8e0e3;
+  --est-contra-texto: #8c1322;
+  --est-contra-punto: #c42a3a;
+
+  /* Materiales por elevacion (claro: papel + blanco; la sombra separa). */
+  --pn-nivel-0: #f4f3ee;
+  --pn-nivel-1: #ffffff;
+  --pn-nivel-2: #ffffff;
+  --pn-nivel-3: #fbfaf6;
+  --pn-linea: #e7e6df;
+  --pn-linea-fuerte: #d6d5cc;
+  --pn-velo: rgb(11 22 14 / 0.32);
+
+  /* Marca con intencion */
+  --pn-marca-profunda: #0b3b1e;
+  --pn-sobre-marca-profunda: #f5efdc;
+  --pn-sobre-marca-suave: #b9c9b4;
+  --pn-lima: #c6ff14;
+  --pn-sobre-lima: #0e1f14;
+  --pn-crema: #f5efdc;
+  --pn-crema-fuerte: #ebe1c2;
+  --pn-terracota: #c2531f;
+  --pn-hoja-baja: #167c08;
+  --pn-hoja-alta: #8fd61d;
+  --pn-acento-tinte: rgb(22 124 8 / 0.1);
+
+  /* Sombras suaves en capas */
+  --pn-sombra-1: 0 0 0 1px rgb(18 24 20 / 0.04), 0 1px 2px rgb(18 24 20 / 0.05), 0 6px 16px -8px rgb(18 24 20 / 0.08);
+  --pn-sombra-2: 0 0 0 1px rgb(18 24 20 / 0.05), 0 2px 6px rgb(18 24 20 / 0.05), 0 18px 44px -12px rgb(18 24 20 / 0.18);
+  --pn-sombra-3: 0 0 0 1px rgb(18 24 20 / 0.06), 0 8px 20px rgb(18 24 20 / 0.08), 0 32px 80px -20px rgb(18 24 20 / 0.32);
+}
+
+:root[data-tema='oscuro'] [data-zona='panel'] {
+  --est-ok-fondo: #15301a;
+  --est-ok-texto: #a3e493;
+  --est-ok-punto: #62c94f;
+  --est-aviso-fondo: #33260a;
+  --est-aviso-texto: #f6d088;
+  --est-aviso-punto: #eeb341;
+  --est-malo-fondo: #3a1c10;
+  --est-malo-texto: #ffb491;
+  --est-malo-punto: #ff8a57;
+  --est-neutro-fondo: #222a24;
+  --est-neutro-texto: #c6ccc6;
+  --est-neutro-punto: #8a938b;
+  --est-info-fondo: #13283b;
+  --est-info-texto: #a9d0f2;
+  --est-info-punto: #6aaee8;
+  --est-contra-fondo: #3b1419;
+  --est-contra-texto: #ffa8b1;
+  --est-contra-punto: #ff6b7a;
+
+  /* Oscuro de verdad: cuanto mas cerca, mas claro (no hay sombra que separe). */
+  --pn-nivel-0: #0b0f0c;
+  --pn-nivel-1: #131915;
+  --pn-nivel-2: #1a211c;
+  --pn-nivel-3: #222a24;
+  --pn-linea: #232b25;
+  --pn-linea-fuerte: #323b34;
+  --pn-velo: rgb(0 0 0 / 0.55);
+
+  --pn-marca-profunda: #10301c;
+  --pn-sobre-marca-profunda: #eef1e4;
+  --pn-sobre-marca-suave: #9fb39c;
+  --pn-lima: #c6ff14;
+  --pn-sobre-lima: #0e1f14;
+  --pn-crema: #1d2a1f;
+  --pn-crema-fuerte: #26372a;
+  --pn-terracota: #ff8a57;
+  --pn-hoja-baja: #2f8f1f;
+  --pn-hoja-alta: #c6ff14;
+  --pn-acento-tinte: rgb(95 194 74 / 0.14);
+
+  --pn-sombra-1: 0 0 0 1px rgb(255 255 255 / 0.04), inset 0 1px 0 rgb(255 255 255 / 0.03);
+  --pn-sombra-2: 0 0 0 1px rgb(255 255 255 / 0.06), 0 18px 44px -12px rgb(0 0 0 / 0.6);
+  --pn-sombra-3: 0 0 0 1px rgb(255 255 255 / 0.08), 0 32px 80px -20px rgb(0 0 0 / 0.75);
+}

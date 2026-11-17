@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="1313" height="1198" viewBox="0 0 1313 1198" role="img" aria-labelledby="titulo descripcion">
+  <title id="titulo">Roinserco — logo editable</title>
+  <desc id="descripcion">Recreación vectorial editable del símbolo verde con flecha circular, nombre Roinserco y lema Al servicio de la comunidad. Elementos, colores, degradados y textos separables.</desc>
+  <defs>
+    <linearGradient id="aro-base" x1="0.18" y1="0.0" x2="0.88" y2="1.0" objectBoundingBox="true">
+      <stop offset="0" stop-color="#006018"/>
+      <stop offset="0.31" stop-color="#4b9d09"/>
+      <stop offset="0.56" stop-color="#167c08"/>
+      <stop offset="0.83" stop-color="#005526"/>
+      <stop offset="1" stop-color="#003b1d"/>
+    </linearGradient>
+    <linearGradient id="aro-brillo" x1="0" y1="0" x2="1" y2="0.75" objectBoundingBox="true">
+      <stop offset="0" stop-color="#c9ff22"/>
+      <stop offset="0.18" stop-color="#63c900"/>
+      <stop offset="0.48" stop-color="#004c19"/>
+      <stop offset="0.82" stop-color="#b5ff21"/>
+      <stop offset="1" stop-color="#3c970b"/>
+    </linearGradient>
+    <linearGradient id="flecha-superior" x1="0.12" y1="0.08" x2="0.92" y2="0.86" objectBoundingBox="true">
+      <stop offset="0" stop-color="#57b500"/>
+      <stop offset="0.24" stop-color="#c6ff14"/>
+      <stop offset="0.56" stop-color="#93e800"/>
+      <stop offset="0.85" stop-color="#0c680d"/>
+      <stop offset="1" stop-color="#02451e"/>
+    </linearGradient>
+    <linearGradient id="flecha-inferior" x1="0" y1="0" x2="0.9" y2="1" objectBoundingBox="true">
+      <stop offset="0" stop-color="#6bdc00"/>
+      <stop offset="0.5" stop-color="#046208"/>
+      <stop offset="1" stop-color="#003c1d"/>
+    </linearGradient>
+    <linearGradient id="brillo-derecha" x1="0.88" y1="0" x2="0.04" y2="0.9" objectBoundingBox="true">
+      <stop offset="0" stop-color="#66cf09"/>
+      <stop offset="0.48" stop-color="#baff37"/>
+      <stop offset="0.74" stop-color="#278f00"/>
+      <stop offset="1" stop-color="#02511b"/>
+    </linearGradient>
+    <linearGradient id="brillo-inferior" x1="0" y1="0" x2="0.65" y2="1" objectBoundingBox="true">
+      <stop offset="0" stop-color="#a8f913"/>
+      <stop offset="0.34" stop-color="#49ad02"/>
+      <stop offset="0.76" stop-color="#00610d"/>
+      <stop offset="1" stop-color="#00491b"/>
+    </linearGradient>
+    <linearGradient id="palo" x1="0" y1="0" x2="1" y2="0.6" objectBoundingBox="true">
+      <stop offset="0" stop-color="#377e13"/>
+      <stop offset="0.36" stop-color="#4a9b11"/>
+      <stop offset="0.7" stop-color="#398c0d"/>
+      <stop offset="1" stop-color="#398811"/>
+    </linearGradient>
+    <linearGradient id="texto-verde" x1="0" y1="0" x2="0.9" y2="1" objectBoundingBox="true">
+      <stop offset="0" stop-color="#0e6a00"/>
+      <stop offset="0.6" stop-color="#378e00"/>
+      <stop offset="1" stop-color="#00421d"/>
+    </linearGradient>
+    <linearGradient id="texto-oscuro" x1="0" y1="0" x2="0.7" y2="1" objectBoundingBox="true">
+      <stop offset="0" stop-color="#006018"/>
+      <stop offset="0.48" stop-color="#03480d"/>
+      <stop offset="1" stop-color="#073b18"/>
+    </linearGradient>
+    <path id="contorno-flecha" d="M 623,76 C 628,79 633,108 640,126 C 769,121 872,188 918,292 C 987,443 927,553 806,606 C 708,650 586,630 526,569 L 524,465 C 581,516 649,537 713,501 C 781,465 796,406 765,332 C 750,282 713,239 674,215 L 689,269 L 622,319 L 450,252 C 494,178 551,111 623,76 Z"/>
+    <clipPath id="corte-aro"><use href="#contorno-flecha"/></clipPath>
+  </defs>
+
+  <g id="fondo" aria-label="Fondo blanco (se puede ocultar o eliminar)">
+    <rect id="fondo-blanco" x="0" y="0" width="1313" height="1198" fill="#ffffff"/>
+  </g>
+
+  <g id="simbolo" aria-label="Símbolo vectorial con flecha verde">
+    <g id="flecha-circular" aria-label="Flecha circular — editar degradados en defs">
+      <use id="base-flecha" href="#contorno-flecha" fill="url(#aro-base)"/>
+      <g id="facetas-y-reflejos" clip-path="url(#corte-aro)">
+        <path id="luz-interior-izquierda" d="M 507,361 C 530,401 546,452 572,478 C 595,504 628,516 649,512 L 646,623 C 582,615 521,568 488,509 Z" fill="url(#brillo-inferior)"/>
+        <path id="franja-derecha" d="M 854,199 C 914,238 949,311 946,393 C 936,462 890,523 829,561 C 847,510 864,433 848,352 C 840,297 809,267 789,249 Z" fill="url(#brillo-derecha)"/>
+        <path id="faceta-interior" d="M 674,214 C 735,229 801,281 827,351 C 850,416 823,472 749,508 C 771,468 784,424 770,362 C 754,303 710,243 674,214 Z" fill="url(#aro-brillo)" opacity="0.9"/>
+        <path id="sombra-inferior" d="M 646,489 C 715,526 807,499 862,449 C 865,519 846,569 804,610 C 740,634 675,632 646,619 Z" fill="#003d20" opacity="0.57"/>
+        <path id="faceta-superior" d="M 622,77 C 627,98 632,117 639,126 C 716,121 786,143 854,199 L 791,250 C 760,220 719,210 672,215 L 689,270 L 622,319 L 449,252 C 497,171 554,108 622,77 Z" fill="url(#flecha-superior)"/>
+        <path id="sombra-bajo-punta" d="M 450,252 L 622,319 L 689,269 L 498,204 Z" fill="url(#flecha-inferior)" opacity="0.92"/>
+        <path id="luz-punta" d="M 450,252 C 489,188 557,112 621,77 C 568,127 521,178 498,203 Z" fill="#caff37" opacity="0.82"/>
+        <path id="resplandor-top" d="M 450,252 L 498,203 L 689,270" fill="none" stroke="#d7ff73" stroke-width="2.5" opacity="0.8"/>
+        <path id="borde-del-brillo-interno" d="M 674,215 C 765,241 828,328 848,381 C 870,448 826,495 749,506" fill="none" stroke="#cdff6d" stroke-width="2.1" opacity="0.7"/>
+      </g>
+    </g>
+    <rect id="columna-letra-p" x="368" y="322" width="174" height="607" rx="40" ry="40" fill="url(#palo)"/>
+  </g>
+
+  <g id="tipografia" aria-label="Textos editables">
+    <text id="nombre-marca" x="568" y="903" font-family="Georgia, 'Times New Roman', serif" font-size="79" font-weight="bold" textLength="447" lengthAdjust="spacingAndGlyphs" fill="url(#texto-verde)">roinserco</text>
+    <text id="lema" x="136" y="1014" font-family="Georgia, 'Times New Roman', serif" font-size="69" font-weight="bold" textLength="1007" lengthAdjust="spacingAndGlyphs" fill="url(#texto-oscuro)">Al servicio de la comunidad</text>
+  </g>
+</svg>

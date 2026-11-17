@@ -1,0 +1,21 @@
+{
+  "name": "@proinserco/tokens",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Design tokens en tres capas (primitivos → semánticos → componente) para Tailwind 4",
+  "type": "module",
+  "exports": {
+    "./index.css": "./src/index.css",
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@proinserco/config": "workspace:*",
+    "@types/node": "26.6.6",
+    "typescript": "6.0.3",
+    "vitest": "5.1.0"
+  }
+}

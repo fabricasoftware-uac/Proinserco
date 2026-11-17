@@ -1,0 +1,7 @@
+/* Punto de entrada único de los tokens. Orden obligatorio: capa 1 → 2 → 3. */
+@import './primitivos.css';
+@import './semanticos.css';
+@import './componentes.css';
+@import './sitio-publico.css';
+
+@import './panel-estados.css';

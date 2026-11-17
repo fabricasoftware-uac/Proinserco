@@ -1,0 +1,67 @@
+/*
+ * CAPA 1 — PRIMITIVOS
+ * Valores crudos de la marca. Fuera de @theme a propósito: no deben generar
+ * utilidades (no queremos `bg-crema-100` en ningún componente).
+ * Solo la capa 2 (semanticos.css) puede leer estas variables.
+ * Paleta derivada del logo y de la especificación (docs/02 - Diseño).
+ * Colores en hex para que el test de contraste los resuelva sin conversiones.
+ */
+:root {
+  /* ─── Sitio público ─────────────────────────────────────── */
+  --crema-50: #fbf8ee;
+  --crema-100: #f5efdc;
+  --crema-200: #ebe1c2;
+  --crema-300: #dccda0;
+
+  --bosque-800: #0f4a27;
+  --bosque-900: #0b3b1e;
+  --bosque-950: #072814;
+
+  --hoja-400: #4cb33a;
+  --hoja-600: #167c08;
+
+  --lima-300: #d9ff6b;
+  --lima-400: #c6ff14;
+
+  --terracota-400: #ea7a49;
+  --terracota-500: #e2591f;
+  --terracota-600: #c94b16;
+
+  --sol-300: #f9d97a;
+  --sol-400: #f6c744;
+
+  --cielo-200: #c3d9e3;
+  --cielo-300: #8fb7c9;
+
+  --tinta-700: #3a4a3f;
+  --tinta-950: #0e1f14;
+
+  --rojo-400: #ff6b5e;
+  --rojo-600: #b3261a;
+
+  /* ─── Panel: neutros con un punto de hoja (papel claro / noche de bosque) ── */
+  --neutro-0: #ffffff;
+  --neutro-50: #f4f3ee;
+  --neutro-100: #e7e6df;
+  --neutro-300: #c9cbc2;
+  --neutro-400: #a6ada5;
+  --neutro-500: #626a63;
+  --neutro-700: #2b332d;
+  --neutro-800: #161c18;
+  --neutro-900: #121814;
+  --neutro-950: #0b0f0c;
+  --hoja-500: #5fc24a;
+
+  /* ─── Movimiento ────────────────────────────────────────── */
+  --curva-salida: cubic-bezier(0.22, 1, 0.36, 1);
+  --curva-expo-salida: cubic-bezier(0.16, 1, 0.3, 1);
+  --curva-entrada-salida: cubic-bezier(0.65, 0, 0.35, 1);
+  --curva-entrada: cubic-bezier(0.55, 0, 1, 0.45);
+  --curva-rebote-suave: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  --duracion-instantanea: 100ms;
+  --duracion-rapida: 160ms;
+  --duracion-media: 280ms;
+  --duracion-lenta: 600ms;
+  --duracion-escena: 1200ms;
+}

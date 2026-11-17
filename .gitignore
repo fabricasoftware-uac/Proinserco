@@ -1,0 +1,41 @@
+# ─── Secretos: NUNCA al repositorio ─────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
+# ─── Dependencias y builds ─────────────────────────────────────
+node_modules/
+.pnpm-store/
+.next/
+out/
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+
+# ─── Pruebas ────────────────────────────────────────────────────
+coverage/
+playwright-report/
+test-results/
+blob-report/
+playwright/.cache/
+
+# ─── Volcados y copias (nunca código ni datos reales) ──────────
+*.sql
+*.dump
+*.bak
+dump*
+
+# ─── Sistema y editores ────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+pnpm-debug.log*
+.vscode/*
+!.vscode/extensions.json
+.idea/

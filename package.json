@@ -1,0 +1,34 @@
+{
+  "name": "proinserco",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sitio y panel de la FundaciÃƒÂ³n Proinserco (PopayÃƒÂ¡n, Cauca)",
+  "packageManager": "pnpm@12.21.0",
+  "engines": {
+    "node": ">=24.11.0 <25",
+    "pnpm": ">=12.21.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @proinserco/web dev",
+    "build": "pnpm --filter @proinserco/web build",
+    "start": "pnpm --filter @proinserco/web start",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "biome check . && node scripts/verificar-primitivos.mjs",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "depcruise": "depcruise --config .dependency-cruiser.cjs apps/web/src packages/ui/src packages/tokens/src",
+    "depcruise:grafo": "depcruise --config .dependency-cruiser.cjs --output-type text apps/web/src packages/ui/src packages/tokens/src",
+    "test": "pnpm -r test",
+    "e2e": "pnpm --filter @proinserco/web e2e",
+    "verify": "pnpm typecheck && pnpm lint && pnpm depcruise && pnpm test && pnpm build",
+    "audit:deps": "pnpm audit --audit-level high",
+    "imagenes:pexels": "node --env-file=apps/web/.env.local scripts/pexels.mjs"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.7",
+    "@types/node": "26.6.6",
+    "dependency-cruiser": "18.7.2",
+    "typescript": "6.0.3",
+    "vitest": "5.1.0"
+  }
+}

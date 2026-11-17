@@ -1,0 +1,350 @@
+/*
+ * Páginas secundarias del sitio público (donar, legal, estado): mismo
+ * lenguaje que la portada en versión ligera. Solo presentación.
+ */
+@layer components {
+  /* ── Legal ──────────────────────────────────────────────────────── */
+  .legal-cabecera {
+    position: relative;
+    overflow: clip;
+    padding: 8rem var(--spacing-gutter) clamp(3rem, 6vw, 5rem);
+    background: var(--superficie);
+    color: var(--texto);
+  }
+  .legal-cabecera-flecha {
+    position: absolute;
+    right: -10vmax;
+    bottom: -18vmax;
+    width: 40vmax;
+    height: 40vmax;
+    color: var(--pintura-bosque-claro);
+  }
+  .legal-titulo {
+    font-size: clamp(2.8rem, 1rem + 6.4vw, 7.5rem);
+    max-width: 16ch;
+  }
+  .legal-sello {
+    display: grid;
+    justify-items: center;
+    width: 10rem;
+    padding: 1rem 0.75rem 0.9rem;
+    border-radius: 1rem;
+    background: var(--pintura-crema-clara);
+    color: var(--pintura-tinta);
+    border-top: 0.6rem solid var(--pintura-lima);
+    text-align: center;
+  }
+  .legal-sello-dia {
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-stretch: 60%;
+    font-size: 4.2rem;
+    line-height: 0.85;
+    font-variant-numeric: tabular-nums;
+  }
+  .legal-sello-mes {
+    font-size: 1.35rem;
+  }
+  .legal-sello-anio {
+    font-weight: 700;
+    font-size: var(--text-pequeno);
+  }
+  .legal-sello-version {
+    margin-top: 0.4rem;
+    font-size: 0.68rem;
+    line-height: 1.3;
+    opacity: 0.8;
+  }
+  .legal-nota {
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--borde-sutil);
+    border-left: 4px solid var(--pintura-terracota);
+    border-radius: 1rem;
+    background: var(--superficie-elevada);
+  }
+  .legal-h2 {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    font-family: var(--font-display);
+    font-weight: 820;
+    font-stretch: 74%;
+    font-size: var(--text-t3);
+    line-height: 1.05;
+    text-transform: uppercase;
+  }
+  .legal-h2-num {
+    display: inline-grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 2.2rem;
+    height: 2.2rem;
+    border-radius: 50%;
+    background: var(--pintura-bosque);
+    color: var(--pintura-lima);
+    font-size: 1.1rem;
+    translate: 0 -0.15rem;
+  }
+
+  /* ── Flujo /donar ───────────────────────────────────────────────── */
+  .flujo-donar {
+    position: relative;
+    overflow: clip;
+  }
+  .flujo-donar-titulo {
+    font-size: clamp(3rem, 1rem + 5vw, 6rem);
+  }
+  .flujo-donar-titulo-2 {
+    padding-left: 1.1em;
+    color: var(--marca);
+  }
+  .paso-titulo {
+    font-family: var(--font-titular);
+    font-weight: 700;
+    font-size: var(--text-t3);
+    line-height: 1.1;
+  }
+  .monto-objeto {
+    display: grid;
+    justify-items: start;
+    gap: 0.2rem;
+    min-height: 4.25rem;
+    padding: 0.75rem 1rem;
+    border: 1.5px solid var(--borde-sutil);
+    border-radius: 0.85rem;
+    background: var(--superficie);
+    color: var(--texto);
+    text-align: left;
+    transition:
+      border-color 250ms var(--curva-salida),
+      background-color 250ms var(--curva-salida),
+      color 250ms var(--curva-salida);
+  }
+  .monto-objeto:hover {
+    border-color: var(--texto);
+  }
+  .monto-objeto-nombre {
+    font-size: var(--text-micro);
+    color: var(--texto-suave);
+  }
+  .monto-objeto-valor {
+    font-weight: 700;
+    font-size: 1.15rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .monto-objeto-activo {
+    border-color: var(--acento);
+    background: var(--acento);
+    color: var(--sobre-acento);
+  }
+  .monto-objeto-activo .monto-objeto-nombre {
+    color: var(--sobre-acento);
+  }
+  .boton-continuar {
+    font-weight: 700;
+  }
+  .resumen-aro {
+    width: min(14rem, 75%);
+    aspect-ratio: 1;
+    margin-inline: auto;
+  }
+  .resumen-aro-fondo {
+    fill: var(--superficie-elevada);
+  }
+  .resumen-aro-liquido {
+    fill: var(--pintura-lima);
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+    transition: transform 900ms var(--curva-salto);
+  }
+  .resumen-aro-trazo {
+    stroke: var(--pintura-lima);
+  }
+  .resumen-aro-punta {
+    fill: var(--pintura-lima);
+  }
+  .resumen-monto {
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-stretch: 62%;
+    font-size: clamp(2.6rem, 1.5rem + 2.4vw, 3.6rem);
+    line-height: 0.9;
+    font-variant-numeric: tabular-nums;
+    color: var(--pintura-lima);
+  }
+
+  /* ── Resultado y pasarela ───────────────────────────────────────── */
+  .resultado-icono {
+    display: inline-grid;
+    place-items: center;
+    color: var(--enfasis);
+  }
+  .resultado-icono[data-estado="rechazada"] {
+    color: var(--pintura-terracota);
+  }
+  .resultado-icono-gira {
+    transform-box: view-box;
+    transform-origin: 50% 50%;
+    animation: gira 8s linear infinite reverse;
+  }
+  .resultado-titulo {
+    font-size: clamp(2.2rem, 1rem + 3.4vw, 4rem);
+  }
+  .resultado-datos {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 1.25rem;
+    align-items: end;
+  }
+  .resultado-monto-cifra {
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-stretch: 62%;
+    font-size: clamp(2.8rem, 1.5rem + 4vw, 4.8rem);
+    line-height: 0.9;
+    font-variant-numeric: tabular-nums;
+  }
+  .resultado-fecha-bloque {
+    display: grid;
+    justify-items: center;
+    min-width: 7rem;
+    padding: 0.6rem 0.75rem 0.7rem;
+    border-radius: 0.9rem;
+    border-top: 0.5rem solid var(--pintura-lima);
+    background: var(--pintura-crema-clara);
+    color: var(--pintura-tinta);
+    text-align: center;
+  }
+  .resultado-fecha-dia {
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-stretch: 60%;
+    font-size: 3.2rem;
+    line-height: 0.85;
+  }
+  .resultado-fecha-mes {
+    font-family: var(--font-enfasis);
+    font-style: italic;
+    font-size: 1.15rem;
+  }
+  .resultado-fecha-anio {
+    font-size: var(--text-micro);
+    font-weight: 600;
+  }
+  .resultado-referencia {
+    grid-column: 1 / -1;
+    padding-top: 0.75rem;
+    border-top: 1.5px solid var(--borde-sutil);
+  }
+  .pasarela-cinta {
+    padding: 0.7rem 1rem;
+    border-radius: 0.6rem;
+    background: var(--pintura-sol);
+    color: var(--pintura-tinta);
+    font-size: var(--text-pequeno);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-align: center;
+    text-transform: uppercase;
+  }
+  .pasarela-tarjeta {
+    margin-top: 1.5rem;
+    padding: clamp(1.5rem, 4vw, 2.25rem);
+    border: 1px solid var(--borde-sutil);
+    border-radius: 1rem;
+    background: var(--superficie-elevada);
+    box-shadow: 0 20px 50px -30px color-mix(in oklab, var(--pintura-tinta) 50%, transparent);
+  }
+  .pasarela-titulo {
+    font-family: var(--font-titular);
+    font-weight: 700;
+    font-size: var(--text-t3);
+  }
+  .pasarela-datos {
+    margin-top: 1.25rem;
+    border-top: 1px solid var(--borde-sutil);
+  }
+  .pasarela-datos > div {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.85rem 0;
+    border-bottom: 1px solid var(--borde-sutil);
+  }
+  .pasarela-datos dt {
+    color: var(--texto-suave);
+  }
+  .pasarela-monto {
+    font-weight: 700;
+    font-size: var(--text-realce);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── 404 / error ────────────────────────────────────────────────── */
+  .estado {
+    position: relative;
+    isolation: isolate;
+    display: flex;
+    align-items: center;
+    min-height: 100dvh;
+    overflow: clip;
+    padding: 6rem var(--spacing-gutter);
+    background: var(--superficie);
+    color: var(--texto);
+  }
+  .estado-flecha-fondo {
+    position: absolute;
+    right: -12vmax;
+    bottom: -14vmax;
+    z-index: -1;
+    width: 52vmax;
+    height: 52vmax;
+    color: var(--pintura-bosque-claro);
+    animation: gira 90s linear infinite;
+  }
+  .estado-codigo {
+    display: flex;
+    align-items: center;
+    margin-top: 2.5rem;
+    font-size: clamp(7rem, 3rem + 18vw, 17rem);
+    line-height: 0.8;
+    color: var(--pintura-lima);
+  }
+  .estado-codigo-flecha {
+    width: 0.78em;
+    height: 0.78em;
+    margin-inline: 0.04em;
+  }
+  .estado-titulo {
+    max-width: 16ch;
+    margin-top: 1.5rem;
+    font-size: clamp(2.4rem, 1rem + 4.4vw, 5rem);
+  }
+  .estado-boton {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3em;
+    min-height: 3.5rem;
+    padding: 0 1.6rem;
+    border-radius: var(--radius-pastilla);
+    background: var(--pintura-crema-clara);
+    color: var(--pintura-tinta);
+    font-family: var(--font-display);
+    font-weight: 840;
+    font-stretch: 78%;
+    font-size: 1.15rem;
+    text-transform: uppercase;
+  }
+  .estado-boton[data-seccion-tema="lima"] {
+    background: var(--superficie);
+    color: var(--texto);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .resultado-icono-gira,
+  .estado-flecha-fondo {
+    animation: none;
+  }
+}

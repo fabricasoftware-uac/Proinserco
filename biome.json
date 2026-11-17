@@ -1,0 +1,51 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "vcs": { "enabled": false },
+  "files": {
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!**/.next",
+      "!**/.turbo",
+      "!**/next-env.d.ts",
+      "!**/public",
+      "!packages/tokens/src/*.css",
+      "!apps/web/src/app/globals.css",
+      "!**/pnpm-lock.yaml",
+      "!docs/**",
+      "!**/*.md"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 130
+  },
+  "javascript": {
+    "formatter": { "quoteStyle": "single", "semicolons": "asNeeded", "trailingCommas": "all" }
+  },
+  "assist": { "actions": { "source": { "organizeImports": "on" } } },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "suspicious": { "noExplicitAny": "error", "noConsole": "off" },
+      "style": {
+        "noDefaultExport": "error",
+        "useFilenamingConvention": { "level": "error", "options": { "filenameCases": ["kebab-case"], "requireAscii": true } }
+      },
+      "correctness": { "noUnusedImports": "error", "noUnusedVariables": "error" }
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["apps/web/src/app/**", "**/*.config.ts", "**/*.config.mjs", "**/*.config.cjs", "apps/web/src/proxy.ts"],
+      "linter": { "rules": { "style": { "noDefaultExport": "off" } } }
+    },
+    {
+      "includes": ["apps/web/src/app/(public)/**", "apps/web/src/app/(app)/**", "apps/web/src/app/(auth)/**"],
+      "linter": { "rules": { "style": { "useFilenamingConvention": "off" } } }
+    }
+  ]
+}
