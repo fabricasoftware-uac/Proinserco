@@ -48,7 +48,7 @@ Notas de nombres: el código está en español (`crearDonacion`, `RepositorioDon
 
 ## 2. Cómo arrancar el proyecto
 
-Requisitos: Node 24 (`.nvmrc`, `engines`: `>=24.11.0 <25`) y pnpm 12.21.0 (campo `packageManager`; con corepack: `corepack pnpm …`).
+Requisitos: Node 24 (`.nvmrc`, `engines`: `24.x`) y pnpm 12.21.0 (campo `packageManager`; con corepack: `corepack pnpm …`).
 
 ```bash
 pnpm install
