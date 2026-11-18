@@ -1,9 +1,18 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import '@/shared/lib/zod-sin-eval'
 import { Actor } from '@/shared/domain/actor'
 import { NoAutorizado, NoEncontrado } from '@/shared/domain/errores'
 import { importeDesdePesos } from '@/shared/domain/importe'
 import { AHORA, actorDe, crearMundoMemoria, solicitudDonacion } from '@/test/mundo-memoria'
-import { DonacionesDeshabilitadas, DonacionYaProcesada, MontoFueraDeRango } from '../../domain/errores'
+import {
+  CargoRechazadoPorFraude,
+  DonacionesDeshabilitadas,
+  DonacionYaProcesada,
+  MontoFueraDeRango,
+  PasarelaNoDisponible,
+} from '../../domain/errores'
+import { FiltrosDonaciones } from '../../domain/esquemas'
+import { crearCrearDonacion } from './crear-donacion'
 
 function idCargoDe(urlPago: string) {
   const id = new URL(urlPago).searchParams.get('cargo')
@@ -66,6 +75,60 @@ describe('crear donación', () => {
     const m = crearMundoMemoria()
     const s = { ...solicitudDonacion(), donante: { ...solicitudDonacion().donante, correo: 'no-es-correo' } }
     await expect(m.crearDonacion(s)).rejects.toThrow()
+  })
+
+  it('deja pasar CargoRechazadoPorFraude sin envolverlo en PasarelaNoDisponible y envuelve fallos internos', async () => {
+    const m = crearMundoMemoria()
+    const crearCargo = vi
+      .fn()
+      .mockRejectedValueOnce(new CargoRechazadoPorFraude())
+      .mockRejectedValueOnce(new Error('500 interno'))
+    const crearConPasarela = crearCrearDonacion({
+      donaciones: m.repoDonaciones,
+      pasarela: { crearCargo, consultarCargo: vi.fn() },
+      donantes: {
+        registrar: async () => ({
+          donanteId: '00000000-0000-4000-8000-000000000001',
+          nombres: 'Ana María',
+          apellidos: 'Muñoz Ortega',
+          correo: 'ana.munoz@correo-demo.test',
+        }),
+      },
+      reloj: m.reloj,
+      ids: { uuid: () => crypto.randomUUID(), referencia: () => `DON-${'A'.repeat(21)}` },
+      eventos: m.eventos,
+      auditor: { registrar: m.registrarAuditoria },
+      configuracion: {
+        limites: { minimoPesos: 10_000, maximoPesos: 20_000_000 },
+        habilitadas: true,
+        urlBase: 'https://proinserco.test',
+      },
+    })
+
+    await expect(crearConPasarela(solicitudDonacion(50_000))).rejects.toThrow(CargoRechazadoPorFraude)
+    await expect(
+      crearCrearDonacion({
+        donaciones: m.repoDonaciones,
+        pasarela: { crearCargo, consultarCargo: vi.fn() },
+        donantes: {
+          registrar: async () => ({
+            donanteId: '00000000-0000-4000-8000-000000000001',
+            nombres: 'Ana María',
+            apellidos: 'Muñoz Ortega',
+            correo: 'ana.munoz@correo-demo.test',
+          }),
+        },
+        reloj: m.reloj,
+        ids: { uuid: () => crypto.randomUUID(), referencia: () => `DON-${'B'.repeat(21)}` },
+        eventos: m.eventos,
+        auditor: { registrar: m.registrarAuditoria },
+        configuracion: {
+          limites: { minimoPesos: 10_000, maximoPesos: 20_000_000 },
+          habilitadas: true,
+          urlBase: 'https://proinserco.test',
+        },
+      })(solicitudDonacion(50_000)),
+    ).rejects.toThrow(PasarelaNoDisponible)
   })
 })
 
@@ -184,5 +247,67 @@ describe('consultas del panel', () => {
     expect(ind).toMatchObject({ recaudadoPesos: 50_000, aprobadas: 1, pendientes: 1, rechazadas: 1, tasaAprobacion: 0.5 })
     expect(ind.serie).toHaveLength(7)
     expect(ind.serie.at(-1)).toEqual({ fecha: AHORA.toISOString().slice(0, 10), montoPesos: 50_000, cantidad: 1 })
+  })
+
+  it('valida FiltrosDonaciones con jitless activo para bigint, enteros y criterios de orden', () => {
+    expect(FiltrosDonaciones.parse({})).toEqual({})
+    expect(FiltrosDonaciones.parse({ minCentavos: 2_500_000n, maxCentavos: 10_000_000, orden: 'monto', dir: 'asc' })).toEqual({
+      minCentavos: 2_500_000n,
+      maxCentavos: 10_000_000n,
+      orden: 'monto',
+      dir: 'asc',
+    })
+    expect(FiltrosDonaciones.parse({ minCentavos: -10, maxCentavos: 'abc', orden: 'otra', dir: 'lado' })).toEqual({
+      minCentavos: undefined,
+      maxCentavos: undefined,
+      orden: undefined,
+      dir: undefined,
+    })
+  })
+
+  it('filtra por monto en centavos y ordena/pagina nativamente por fecha, monto y estado', async () => {
+    const m = crearMundoMemoria()
+    const admin = actorDe('administrador')
+    const d1 = await m.crearDonacion(solicitudDonacion(30_000))
+    m.reloj.avanzar(60_000)
+    const d2 = await m.crearDonacion(solicitudDonacion(10_000))
+    m.reloj.avanzar(60_000)
+    const d3 = await m.crearDonacion(solicitudDonacion(50_000))
+    m.reloj.avanzar(60_000)
+    const d4 = await m.crearDonacion(solicitudDonacion(50_000))
+
+    m.pasarela.resolverCargo(idCargoDe(d2.urlPago), 'aprobado')
+    m.pasarela.resolverCargo(idCargoDe(d4.urlPago), 'rechazado')
+    await m.conciliarDonacion({ referencia: d2.referencia })
+    await m.conciliarDonacion({ referencia: d4.referencia })
+
+    const rango = await m.listarDonaciones({ minCentavos: 3_000_000n, maxCentavos: 5_000_000n }, {}, admin)
+    expect(rango.total).toBe(3)
+    expect(rango.elementos.every((d) => d.datos.importe.centavos >= 3_000_000n && d.datos.importe.centavos <= 5_000_000n)).toBe(
+      true,
+    )
+
+    const p1Monto = await m.listarDonaciones({ orden: 'monto', dir: 'asc' }, { limite: 2 }, admin)
+    expect(p1Monto.elementos.map((d) => Number(d.datos.importe.centavos / 100n))).toEqual([10_000, 30_000])
+    const p2Monto = await m.listarDonaciones(
+      { orden: 'monto', dir: 'asc' },
+      { limite: 2, cursor: p1Monto.cursorSiguiente ?? undefined },
+      admin,
+    )
+    expect(p2Monto.elementos.map((d) => Number(d.datos.importe.centavos / 100n))).toEqual([50_000, 50_000])
+    expect(p2Monto.elementos[0]?.id).not.toBe(p2Monto.elementos[1]?.id)
+    expect(p2Monto.elementos.every((d) => d.datos.referencia === d3.referencia || d.datos.referencia === d4.referencia)).toBe(
+      true,
+    )
+    expect(p2Monto.cursorSiguiente).toBeNull()
+
+    // Si cambia el orden manteniendo el cursor previo, reinicia desde el principio sin fallar.
+    const porEstado = await m.listarDonaciones(
+      { orden: 'estado', dir: 'asc' },
+      { limite: 4, cursor: p1Monto.cursorSiguiente ?? undefined },
+      admin,
+    )
+    expect(porEstado.elementos.map((d) => d.estado)).toEqual(['aprobada', 'pendiente', 'pendiente', 'rechazada'])
+    expect(d1.referencia).toBeTruthy()
   })
 })

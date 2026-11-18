@@ -3,12 +3,12 @@ import { crearRegistrarAuditoria } from '@/modules/auditoria/application/use-cas
 import { crearRegistroAuditoriaMemoria } from '@/modules/auditoria/infrastructure/registro-auditoria-memoria'
 import type { RegistroDeDonantes } from '@/modules/donaciones/application/ports/registro-de-donantes'
 import { crearConciliarDonacion } from '@/modules/donaciones/application/use-cases/conciliar-donacion'
+import { crearConciliarPendientes } from '@/modules/donaciones/application/use-cases/conciliar-pendientes'
 import { crearConsultarResultadoDonacion } from '@/modules/donaciones/application/use-cases/consultar-resultado-donacion'
 import { type ConfiguracionDonaciones, crearCrearDonacion } from '@/modules/donaciones/application/use-cases/crear-donacion'
 import { crearListarDonaciones } from '@/modules/donaciones/application/use-cases/listar-donaciones'
 import { crearObtenerDonacion } from '@/modules/donaciones/application/use-cases/obtener-donacion'
 import { crearObtenerIndicadores } from '@/modules/donaciones/application/use-cases/obtener-indicadores'
-import { crearPasarelaSimulada } from '@/modules/donaciones/infrastructure/pasarela-simulada'
 import { crearRepositorioDonacionesMemoria } from '@/modules/donaciones/infrastructure/repositorio-donaciones-memoria'
 import { crearListarDonantes } from '@/modules/donantes/application/use-cases/listar-donantes'
 import { crearObtenerDonante, crearRevelarDatoDonante } from '@/modules/donantes/application/use-cases/obtener-donante'
@@ -24,6 +24,7 @@ import type { GeneradorIds } from '@/shared/application/ports/generador-ids'
 import { Actor } from '@/shared/domain/actor'
 import { crearPublicadorEventosMemoria } from '@/shared/infrastructure/publicador-eventos-memoria'
 import { crearRelojFijo } from '@/shared/infrastructure/reloj'
+import { crearPasarelaSimulada } from './pasarela-simulada'
 
 export const AHORA = new Date('2026-11-16T15:00:00.000Z')
 
@@ -91,6 +92,12 @@ export function crearMundoMemoria(configuracion: Partial<ConfiguracionDonaciones
   const repoDonaciones = crearRepositorioDonacionesMemoria()
   const pasarela = crearPasarelaSimulada({ ids, urlBase: 'https://proinserco.test' })
   const conciliarDonacion = crearConciliarDonacion({ donaciones: repoDonaciones, pasarela, reloj, eventos, auditor })
+  const conciliarPendientes = crearConciliarPendientes({
+    donaciones: repoDonaciones,
+    conciliar: conciliarDonacion,
+    reloj,
+    auditor,
+  })
   const crearDonacion = crearCrearDonacion({
     donaciones: repoDonaciones,
     pasarela,
@@ -118,6 +125,7 @@ export function crearMundoMemoria(configuracion: Partial<ConfiguracionDonaciones
     registroAuditoria,
     crearDonacion,
     conciliarDonacion,
+    conciliarPendientes,
     consultarResultado: crearConsultarResultadoDonacion({
       donaciones: repoDonaciones,
       conciliar: conciliarDonacion,

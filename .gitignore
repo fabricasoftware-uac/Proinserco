@@ -26,9 +26,15 @@ playwright/.cache/
 
 # ─── Volcados y copias (nunca código ni datos reales) ──────────
 *.sql
+!supabase/migrations/*.sql
+!supabase/seed.sql
 *.dump
 *.bak
 dump*
+
+# ─── Supabase CLI ───────────────────────────────────────────────
+supabase/.temp/
+supabase/.branches/
 
 # ─── Sistema y editores ────────────────────────────────────────
 .DS_Store

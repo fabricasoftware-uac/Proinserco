@@ -42,8 +42,18 @@ const EsquemaEnv = z
     OPENPAY_MERCHANT_ID: z.string().min(1).optional(),
     OPENPAY_PRIVATE_KEY: z.string().min(1).optional(),
     OPENPAY_API_URL: z.enum([OPENPAY_SANDBOX, OPENPAY_PRODUCCION]).optional(),
+    OPENPAY_SANDBOX_EN_PRODUCCION: siNo.default('no'),
     OPENPAY_WEBHOOK_USUARIO: z.string().min(8).optional(),
     OPENPAY_WEBHOOK_CONTRASENA: z.string().min(24).optional(),
+    OPENPAY_WEBHOOK_SECRETO_RUTA: z.string().min(32).optional(),
+    OPENPAY_CHECKOUT_ORIGIN: z
+      .url()
+      .refine((u) => new URL(u).protocol === 'https:', 'OPENPAY_CHECKOUT_ORIGIN debe usar https://')
+      .transform((u) => new URL(u).origin)
+      .optional(),
+
+    // Cron de conciliación diaria
+    CRON_CONCILIACION_SECRETO: z.string().min(32).optional(),
 
     // Turnstile
     TURNSTILE_SECRET_KEY: z.string().min(1).optional(),
@@ -57,8 +67,18 @@ const EsquemaEnv = z
     }
     if (e.ADAPTADORES === 'real') {
       exigir(['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'DATABASE_URL'], 'con ADAPTADORES=real')
-      exigir(['OPENPAY_MERCHANT_ID', 'OPENPAY_PRIVATE_KEY', 'OPENPAY_API_URL'], 'con ADAPTADORES=real')
-      exigir(['OPENPAY_WEBHOOK_USUARIO', 'OPENPAY_WEBHOOK_CONTRASENA'], 'con ADAPTADORES=real')
+      exigir(
+        [
+          'OPENPAY_MERCHANT_ID',
+          'OPENPAY_PRIVATE_KEY',
+          'OPENPAY_API_URL',
+          'OPENPAY_WEBHOOK_USUARIO',
+          'OPENPAY_WEBHOOK_CONTRASENA',
+          'OPENPAY_WEBHOOK_SECRETO_RUTA',
+        ],
+        'con ADAPTADORES=real',
+      )
+      exigir(['CRON_CONCILIACION_SECRETO'], 'con ADAPTADORES=real')
       exigir(['TURNSTILE_SECRET_KEY'], 'con ADAPTADORES=real')
     }
     if (e.ANTIBOTS === 'turnstile') exigir(['TURNSTILE_SECRET_KEY'], 'con ANTIBOTS=turnstile')
@@ -67,17 +87,27 @@ const EsquemaEnv = z
         code: 'custom',
         path: ['ADAPTADORES'],
         message:
-          'Producción con adaptadores en memoria (usuarios demo, pasarela simulada). Usa ADAPTADORES=real o autorízalo con ADAPTADORES_MEMORIA_EN_PRODUCCION=si',
+          'Producción con adaptadores en memoria (sin persistencia ni pasarela). Usa ADAPTADORES=real o autorízalo con ADAPTADORES_MEMORIA_EN_PRODUCCION=si',
       })
     }
     // Llaves de sandbox y producción nunca se mezclan (vault: Pagos en Línea).
+    // Excepción explícita para staging/pruebas sandbox bajo NODE_ENV=production (Coolify/VPS).
     if (e.ADAPTADORES === 'real' && e.OPENPAY_API_URL) {
-      const esProduccion = e.NODE_ENV === 'production'
-      if (esProduccion !== (e.OPENPAY_API_URL === OPENPAY_PRODUCCION)) {
+      if (e.NODE_ENV === 'production') {
+        const permiteSandbox = e.OPENPAY_SANDBOX_EN_PRODUCCION === 'si'
+        if (e.OPENPAY_API_URL !== OPENPAY_PRODUCCION && !(permiteSandbox && e.OPENPAY_API_URL === OPENPAY_SANDBOX)) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['OPENPAY_API_URL'],
+            message:
+              'Producción debe usar la API de producción de Openpay (o autorizar sandbox con OPENPAY_SANDBOX_EN_PRODUCCION=si)',
+          })
+        }
+      } else if (e.OPENPAY_API_URL !== OPENPAY_SANDBOX) {
         ctx.addIssue({
           code: 'custom',
           path: ['OPENPAY_API_URL'],
-          message: 'Producción debe usar la API de producción de Openpay y el resto, el sandbox',
+          message: 'Fuera de producción debe usarse la API sandbox de Openpay',
         })
       }
     }

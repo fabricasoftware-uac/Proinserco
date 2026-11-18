@@ -4,6 +4,11 @@ import { cache } from 'react'
 import type { Actor, Permiso } from '@/shared/domain/actor'
 import { obtenerContenedor } from './container'
 import { almacenCookiesNext } from './cookies-next'
+import { registrarResolvedorActorPanel } from './db/contexto-db'
+
+const almacenActorPeticion = cache(() => ({ actor: null as Actor | null }))
+
+registrarResolvedorActorPanel(() => almacenActorPeticion().actor)
 
 /**
  * CAPA 2 de autorización: el borde autentica de verdad.
@@ -12,7 +17,9 @@ import { almacenCookiesNext } from './cookies-next'
  */
 export const obtenerActor = cache(async (): Promise<Actor | null> => {
   const contenedor = await obtenerContenedor()
-  return contenedor.iam.obtenerActor(await almacenCookiesNext())
+  const actor = await contenedor.iam.obtenerActor(await almacenCookiesNext())
+  almacenActorPeticion().actor = actor
+  return actor
 })
 
 /**

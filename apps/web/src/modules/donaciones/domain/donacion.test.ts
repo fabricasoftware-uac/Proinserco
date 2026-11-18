@@ -58,6 +58,12 @@ describe('máquina de estados de la donación', () => {
     original.registrarCargo('c', 'u', ahora)
     expect(original.estado).toBe('creada')
   })
+
+  it('permite expirar una donación abandonada en estado `creada`', () => {
+    const expirada = nueva().transicionar('expirada', ahora, 'conciliacion')
+    expect(expirada.estado).toBe('expirada')
+    expect(expirada.datos.historial).toEqual([{ desde: 'creada', hacia: 'expirada', en: ahora, origen: 'conciliacion' }])
+  })
 })
 
 describe('monto de la donación (decidido en servidor)', () => {

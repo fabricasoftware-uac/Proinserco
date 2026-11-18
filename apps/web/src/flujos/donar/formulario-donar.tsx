@@ -21,9 +21,24 @@ type Props = {
   siteKey: string
 }
 
-type ErrorServidor = { codigo: string; mensaje: string; requestId: string }
+type ErrorServidor = { codigo: string; mensaje: string; requestId: string; reintentarEnSegundos?: number }
 type Errores = Record<string, string>
 type Paso = 1 | 2 | 3
+
+function aplanarErroresFormateados(nodo: unknown, prefijo = '', salida: Errores = {}): Errores {
+  if (!nodo || typeof nodo !== 'object') return salida
+  for (const [clave, valor] of Object.entries(nodo)) {
+    if (clave === '_errors') {
+      if (prefijo && Array.isArray(valor) && valor.length > 0) {
+        salida[prefijo] = MENSAJES[prefijo] ?? 'Revisa este dato'
+      }
+      continue
+    }
+    const ruta = prefijo ? `${prefijo}.${clave}` : clave
+    aplanarErroresFormateados(valor, ruta, salida)
+  }
+  return salida
+}
 
 const NOMBRES_LINEA: Record<LineaApoyo, string> = {
   'donde-mas-se-necesite': 'Donde más se necesite',
@@ -106,12 +121,25 @@ export function FormularioDonar(props: Props) {
           setReinicioAntiBots((n) => n + 1)
         }
       } else if (error.validationErrors) {
+        const mapeados = aplanarErroresFormateados(error.validationErrors)
+        setErrores(mapeados)
+        const fallaPaso2 = Object.keys(mapeados).some((k) => CAMPOS_PASO_2.includes(k) || k === 'donante')
+        const soloAntiBots = Boolean(mapeados.tokenAntiBots) && !mapeados.montoPesos && !fallaPaso2
         setErrorServidor({
           codigo: 'VALIDACION_FALLIDA',
-          mensaje: 'El servidor no aceptó algunos datos. Revisa los pasos 1 y 2.',
+          mensaje: soloAntiBots
+            ? 'Completa la verificación de seguridad e inténtalo de nuevo.'
+            : 'El servidor no aceptó algunos datos. Revisa los campos marcados.',
           requestId: '',
         })
-        setPaso(2)
+        if (mapeados.montoPesos) setPaso(1)
+        else if (fallaPaso2) setPaso(2)
+        else if (mapeados.tokenAntiBots) setPaso(3)
+        else setPaso(2)
+        if (props.antibots === 'turnstile') {
+          setTokenAntiBots('')
+          setReinicioAntiBots((n) => n + 1)
+        }
       } else {
         setErrorServidor({
           codigo: 'RED',

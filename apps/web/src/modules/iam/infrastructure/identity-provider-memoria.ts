@@ -4,9 +4,18 @@ import type { AlmacenCookies, OpcionesCookie } from '../application/ports/almace
 import type { IdentityProvider } from '../application/ports/identity-provider'
 import { CodigoMfaInvalido, CredencialesInvalidas, DesafioMfaExpirado } from '../domain/errores'
 import type { Identidad } from '../domain/identidad'
+import type { Rol } from '../domain/roles'
 import { crearFirmador } from './firma-tokens'
 import { verificarTotp } from './totp'
-import type { UsuarioDemo } from './usuarios-demo'
+
+export type UsuarioMemoria = Readonly<{
+  id: string
+  correo: string
+  nombre: string
+  rol: Rol
+  contrasena: string
+  secretoTotp: string
+}>
 
 export type ConfiguracionIdentidadMemoria = Readonly<{
   secreto: string
@@ -20,14 +29,14 @@ export type ConfiguracionIdentidadMemoria = Readonly<{
   duracionMaximaHoras: number
 }>
 
-type UsuarioInterno = UsuarioDemo & { sal: Buffer; hash: Buffer }
+type UsuarioInterno = UsuarioMemoria & { sal: Buffer; hash: Buffer }
 type Sesion = { usuarioId: string; creadaEn: number; ultimoUso: number }
 
 const DESAFIO_MINUTOS = 5
 
 /**
- * IdentityProvider EN MEMORIA (demo). Implementa de verdad lo que importa
- * para la seguridad, para que el panel se pruebe igual que con Supabase:
+ * IdentityProvider EN MEMORIA (pruebas unitarias y arranque local sin usuarios).
+ * Implementa lo que importa para la seguridad:
  *  - contraseñas con scrypt y comparación en tiempo constante;
  *  - MFA TOTP real (RFC 6238) con anti-replay;
  *  - sesión con id aleatorio de 256 bits, guardada en servidor (revocable),
@@ -35,7 +44,7 @@ const DESAFIO_MINUTOS = 5
  *  - caducidad por inactividad y absoluta.
  */
 export function crearIdentityProviderMemoria(
-  usuarios: readonly UsuarioDemo[],
+  usuarios: readonly UsuarioMemoria[],
   reloj: Reloj,
   config: ConfiguracionIdentidadMemoria,
 ): IdentityProvider {

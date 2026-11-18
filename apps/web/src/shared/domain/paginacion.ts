@@ -24,9 +24,14 @@ export type Pagina<T> = Readonly<{
 
 /**
  * Cursor opaco: base64url de la clave de orden. Se valida al decodificar;
- * un cursor manipulado se trata como "sin cursor", nunca como error 500.
+ * un cursor manipulado o de otro criterio de orden se trata como "sin cursor",
+ * nunca como error 500.
  */
-const ClaveCursor = z.object({ en: z.string().max(40), id: z.string().max(80) })
+const ClaveCursor = z.object({
+  en: z.string().max(80),
+  id: z.string().max(80),
+  o: z.string().max(24).optional(),
+})
 export type ClaveCursor = z.infer<typeof ClaveCursor>
 
 export function codificarCursor(clave: ClaveCursor): string {
@@ -47,16 +52,24 @@ export function decodificarCursor(cursor: string | undefined): ClaveCursor | nul
 }
 
 /**
- * Pagina en memoria una lista ya ordenada de forma descendente por (en, id).
- * Lo usan los adaptadores en memoria; el adaptador SQL hace lo mismo con
- * `WHERE (creado_en, id) < ($1, $2) ORDER BY creado_en DESC, id DESC LIMIT n`.
+ * Pagina en memoria una lista ya ordenada por `(clave.en, clave.id)` en sentido `dir`.
+ * Ignora cursores cuyo campo `o` no coincida con `ordenEsperado`.
  */
-export function paginarDescendente<T>(ordenados: readonly T[], clave: (e: T) => ClaveCursor, paginacion: Paginacion): Pagina<T> {
-  const desde = decodificarCursor(paginacion.cursor)
+export function paginarOrdenado<T>(
+  ordenados: readonly T[],
+  clave: (e: T) => ClaveCursor,
+  paginacion: Paginacion,
+  dir: 'asc' | 'desc',
+  ordenEsperado?: string,
+): Pagina<T> {
+  const decodificado = decodificarCursor(paginacion.cursor)
+  const desde = decodificado && (ordenEsperado === undefined || decodificado.o === ordenEsperado) ? decodificado : null
   const restantes = desde
     ? ordenados.filter((e) => {
         const k = clave(e)
-        return k.en < desde.en || (k.en === desde.en && k.id < desde.id)
+        return dir === 'asc'
+          ? k.en > desde.en || (k.en === desde.en && k.id > desde.id)
+          : k.en < desde.en || (k.en === desde.en && k.id < desde.id)
       })
     : ordenados
   const elementos = restantes.slice(0, paginacion.limite)
@@ -64,7 +77,17 @@ export function paginarDescendente<T>(ordenados: readonly T[], clave: (e: T) => 
   const hayMas = restantes.length > elementos.length
   return {
     elementos,
-    cursorSiguiente: hayMas && ultimo ? codificarCursor(clave(ultimo)) : null,
+    cursorSiguiente:
+      hayMas && ultimo ? codificarCursor({ ...(ordenEsperado ? { o: ordenEsperado } : {}), ...clave(ultimo) }) : null,
     total: ordenados.length,
   }
+}
+
+/**
+ * Pagina en memoria una lista ya ordenada de forma descendente por (en, id).
+ * Lo usan los adaptadores en memoria; el adaptador SQL hace lo mismo con
+ * `WHERE (creado_en, id) < ($1, $2) ORDER BY creado_en DESC, id DESC LIMIT n`.
+ */
+export function paginarDescendente<T>(ordenados: readonly T[], clave: (e: T) => ClaveCursor, paginacion: Paginacion): Pagina<T> {
+  return paginarOrdenado(ordenados, clave, paginacion, 'desc')
 }

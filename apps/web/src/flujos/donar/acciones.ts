@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { accionPublica, conAntiBots, conLimiteDeTasa } from '@/server/acciones'
 import { obtenerContenedor } from '@/server/container'
 import { contextoPeticion } from '@/server/contexto-peticion'
+import { ejecutarConContextoDb } from '@/server/db/contexto-db'
 import { FormularioDonacion } from './esquema'
 
 const CorreoSinValidar = z.object({ donante: z.object({ correo: z.string().max(254) }) })
@@ -43,15 +44,17 @@ export const crearDonacionAccion = accionPublica
     if (parsedInput.sitioWeb) redirect('/')
 
     const { donaciones } = await obtenerContenedor()
-    const { urlPago } = await donaciones.crearDonacion({
-      donacion: {
-        montoPesos: parsedInput.montoPesos,
-        linea: parsedInput.linea,
-        claveIdempotencia: parsedInput.claveIdempotencia,
-      },
-      donante: parsedInput.donante,
-      quiereCertificado: parsedInput.quiereCertificado,
-      contexto: { ip, userAgent },
-    })
+    const { urlPago } = await ejecutarConContextoDb({ modo: 'publico' }, () =>
+      donaciones.crearDonacion({
+        donacion: {
+          montoPesos: parsedInput.montoPesos,
+          linea: parsedInput.linea,
+          claveIdempotencia: parsedInput.claveIdempotencia,
+        },
+        donante: parsedInput.donante,
+        quiereCertificado: parsedInput.quiereCertificado,
+        contexto: { ip, userAgent },
+      }),
+    )
     redirect(urlPago)
   })

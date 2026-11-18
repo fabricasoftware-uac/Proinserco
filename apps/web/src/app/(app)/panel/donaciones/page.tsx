@@ -3,12 +3,11 @@ import Link from 'next/link'
 import { consultarDonaciones } from '@/modules/donaciones/ui/consulta-panel'
 import { requireActor } from '@/server/auth-context'
 import { obtenerContenedor } from '@/server/container'
-import { Aro } from '@/shared/ui/panel/aro'
 import { EncabezadoPagina, EstadoPanel, Tarjeta } from '@/shared/ui/panel/primitivas'
 import { ExportarCsv } from '../_ui/exportar-csv'
 import { FiltrosDonaciones, hayFiltros, parametrosBase } from '../_ui/filtros-donaciones'
 import { Paginador } from '../_ui/paginador'
-import { LIMITE_PAGINA, leerPila, ParametrosDonaciones } from '../_ui/parametros'
+import { enlacesPaginacion, LIMITE_PAGINA, ParametrosDonaciones } from '../_ui/parametros'
 import { TablaDonaciones } from '../_ui/tabla-donaciones'
 import { construirHref, normalizarParametros, type ParamsCrudos } from '../_ui/url'
 
@@ -32,13 +31,11 @@ export default async function PaginaDonaciones({ searchParams }: { searchParams:
     orden: p.orden,
     dir: p.dir,
     cursor: p.cursor,
-    pagina: p.pagina,
     limite: LIMITE_PAGINA,
   } as const
   const r = await consultarDonaciones(donaciones.listarDonaciones, actor, consulta)
 
   const base = parametrosBase(p)
-  const pila = leerPila(p.pila)
 
   // Orden por columna: la que ya está activa invierte; las demás arrancan en su sentido natural.
   const hrefOrden = (columna: 'fecha' | 'monto' | 'estado') => {
@@ -46,27 +43,11 @@ export default async function PaginaDonaciones({ searchParams }: { searchParams:
     return construirHref(BASE, { ...base, orden: columna, dir })
   }
 
-  let anterior: string | null = null
-  let siguiente: string | null = null
-  let desdeFila = 1
-  if (r.modo === 'cursor') {
-    desdeFila = (p.cursor ? Math.max(pila.length, 1) : 0) * LIMITE_PAGINA + 1
-    if (r.siguienteCursor) {
-      siguiente = construirHref(BASE, { ...base, cursor: r.siguienteCursor, pila: [...pila, p.cursor ?? '0'].join(',') })
-    }
-    if (p.cursor) {
-      const previo = pila.at(-1)
-      anterior = construirHref(BASE, {
-        ...base,
-        cursor: previo && previo !== '0' ? previo : undefined,
-        pila: pila.slice(0, -1).join(',') || undefined,
-      })
-    }
-  } else {
-    desdeFila = (p.pagina - 1) * LIMITE_PAGINA + 1
-    if (r.hayMas) siguiente = construirHref(BASE, { ...base, pagina: p.pagina + 1 })
-    if (p.pagina > 1) anterior = construirHref(BASE, { ...base, pagina: p.pagina - 1 })
-  }
+  const { desdeFila, anterior, siguiente } = enlacesPaginacion(BASE, base, {
+    cursor: p.cursor,
+    pila: p.pila,
+    cursorSiguiente: r.siguienteCursor,
+  })
 
   const exportacion = {
     ...(p.estado ? { estado: p.estado } : {}),
@@ -89,16 +70,6 @@ export default async function PaginaDonaciones({ searchParams }: { searchParams:
       />
 
       <FiltrosDonaciones p={p} />
-
-      {r.modo === 'acotado' ? (
-        <p className="pn-aviso pn-tono-info" style={{ marginBottom: '1.25rem' }}>
-          <Aro forma="punto" tamano={18} />
-          <span>
-            Con orden por columna o filtro de monto se trabaja sobre las últimas 1.000 donaciones que cumplen los demás filtros
-            {r.truncado ? ' (hay más que no se incluyen)' : ''}.
-          </span>
-        </p>
-      ) : null}
 
       <Tarjeta sinRelleno>
         {r.filas.length === 0 ? (

@@ -9,5 +9,7 @@ export const FiltrosAuditoria = z.object({
   actorId: z.string().max(80).optional().catch(undefined),
   recurso: z.string().max(60).optional().catch(undefined),
   recursoId: z.string().max(120).optional().catch(undefined),
+  desde: z.coerce.date().optional().catch(undefined),
+  hasta: z.coerce.date().optional().catch(undefined),
 })
 export type FiltrosAuditoria = z.infer<typeof FiltrosAuditoria>

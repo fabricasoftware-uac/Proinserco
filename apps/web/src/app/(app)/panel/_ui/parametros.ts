@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { EstadoDonacion, LineaApoyo } from '@/modules/donaciones'
 import { AccionAuditable } from '@/shared/domain/evento-auditable'
+import { construirHref } from './url'
 
 const Fecha = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 const Cursor = z
@@ -65,3 +66,26 @@ export const LIMITE_PAGINA = 20
 
 /** Pila de cursores: "a,b,c" → ['a','b','c'] (máximo 30). */
 export const leerPila = (pila: string | undefined): string[] => (pila ? pila.split(',').filter(Boolean).slice(-30) : [])
+
+/** Calcula rango visible y enlaces Anterior/Siguiente para listados paginados por cursor con pila. */
+export function enlacesPaginacion(
+  ruta: string,
+  base: Record<string, string | number | null | undefined>,
+  estado: { cursor?: string | undefined; pila?: string | undefined; cursorSiguiente: string | null; limite?: number },
+): { desdeFila: number; anterior: string | null; siguiente: string | null } {
+  const limite = estado.limite ?? LIMITE_PAGINA
+  const pila = leerPila(estado.pila)
+  const desdeFila = (estado.cursor ? Math.max(pila.length, 1) : 0) * limite + 1
+  const siguiente = estado.cursorSiguiente
+    ? construirHref(ruta, { ...base, cursor: estado.cursorSiguiente, pila: [...pila, estado.cursor ?? '0'].join(',') })
+    : null
+  const previo = pila.at(-1)
+  const anterior = estado.cursor
+    ? construirHref(ruta, {
+        ...base,
+        cursor: previo && previo !== '0' ? previo : undefined,
+        pila: pila.slice(0, -1).join(',') || undefined,
+      })
+    : null
+  return { desdeFila, anterior, siguiente }
+}

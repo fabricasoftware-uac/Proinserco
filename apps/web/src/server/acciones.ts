@@ -14,6 +14,7 @@ import {
 import { obtenerActor } from './auth-context'
 import { obtenerContenedor } from './container'
 import { contextoPeticion } from './contexto-peticion'
+import { ejecutarConContextoDb } from './db/contexto-db'
 import { registro } from './registro'
 
 /**
@@ -33,7 +34,12 @@ import { registro } from './registro'
  */
 
 /** Forma ÚNICA del error que recibe el cliente. */
-export type ErrorAccion = Readonly<{ codigo: string; mensaje: string; requestId: string }>
+export type ErrorAccion = Readonly<{
+  codigo: string
+  mensaje: string
+  requestId: string
+  reintentarEnSegundos?: number
+}>
 
 const Metadatos = z.object({ nombre: z.string().min(1).max(60) })
 type Metadatos = z.infer<typeof Metadatos>
@@ -53,7 +59,9 @@ function aErrorAccion(error: Error, metadatos: Metadatos | undefined): ErrorAcci
   }
   if (error instanceof ErrorDeDominio && error.esPublico) {
     registro.info('Acción rechazada', { requestId, accion: metadatos?.nombre, codigo: error.code })
-    return { codigo: error.code, mensaje: error.message, requestId }
+    return error instanceof DemasiadasPeticiones
+      ? { codigo: error.code, mensaje: error.message, requestId, reintentarEnSegundos: error.reintentarEnSegundos }
+      : { codigo: error.code, mensaje: error.message, requestId }
   }
   if (error instanceof z.ZodError) {
     return { codigo: 'VALIDACION_FALLIDA', mensaje: 'Revisa los datos enviados', requestId }
@@ -66,7 +74,7 @@ function aErrorAccion(error: Error, metadatos: Metadatos | undefined): ErrorAcci
 export const accionPublica = createSafeActionClient({
   defineMetadataSchema: () => Metadatos,
   handleServerError: (error, utils): ErrorAccion => aErrorAccion(error, utils.metadata),
-  defaultValidationErrorsShape: 'flattened',
+  defaultValidationErrorsShape: 'formatted',
 })
 
 type Base = { serverError: ErrorAccion; metadata: Metadatos }
@@ -116,7 +124,7 @@ export const conAntiBots = createMiddleware<Base>().define(async ({ next, client
 export const accionPanel = accionPublica.use(conLimiteDeTasa({ limite: 100, ventanaSegundos: 60 })).use(async ({ next }) => {
   const actor = await obtenerActor()
   if (!actor) throw new NoAutenticado()
-  return next({ ctx: { actor } })
+  return ejecutarConContextoDb({ modo: 'panel', actor }, () => next({ ctx: { actor } }))
 })
 
 /** Permiso `recurso:accion` para una acción del panel. */

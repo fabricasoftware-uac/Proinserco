@@ -48,3 +48,11 @@ export class PasarelaNoDisponible extends ErrorDeDominio {
     this.cause = causa
   }
 }
+
+export class CargoRechazadoPorFraude extends ErrorDeDominio {
+  readonly code = 'CARGO_RECHAZADO_FRAUDE'
+  override readonly esPublico = true
+  constructor() {
+    super('No pudimos procesar el pago por motivos de seguridad. Intenta con otro medio de pago')
+  }
+}

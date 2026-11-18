@@ -3,7 +3,7 @@ import type { GeneradorIds } from '@/shared/application/ports/generador-ids'
 import type { PublicadorEventos } from '@/shared/application/ports/publicador-eventos'
 import type { Reloj } from '@/shared/application/ports/reloj'
 import { ACTOR_SISTEMA } from '@/shared/domain/actor'
-import { NoImplementado } from '@/shared/domain/errores'
+import { ErrorDeDominio, NoImplementado } from '@/shared/domain/errores'
 import { pesosDeImporte } from '@/shared/domain/importe'
 import { Donacion, type DonacionId } from '../../domain/donacion'
 import { DonacionesDeshabilitadas, DonacionYaProcesada, PasarelaNoDisponible } from '../../domain/errores'
@@ -115,6 +115,7 @@ async function crearCargoSeguro(deps: Dependencias, donacion: Donacion) {
     })
   } catch (error) {
     if (error instanceof NoImplementado) throw error
+    if (error instanceof ErrorDeDominio && error.esPublico) throw error
     // La donación queda `creada` (abandonada); la conciliación la limpia.
     throw new PasarelaNoDisponible(error)
   }

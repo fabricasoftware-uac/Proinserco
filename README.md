@@ -3,7 +3,7 @@
 Monorepo pnpm: `apps/web` (Next.js 16, App Router) + `packages/{tokens,ui,config}`.
 Documento rector: `docs/02 - Diseño/Especificación del sitio.md`.
 
-Documentación: `docs/ProInserco.md` (índice). Para backend: `docs/05 - Backend/Handoff para Backend.md`.
+Documentación: `docs/ProInserco.md` (índice). Para backend y despliegue: `docs/05 - Backend/Handoff para Backend.md` y `docs/05 - Backend/Servicios Supabase para VPS.md`.
 
 ## Arrancar
 
@@ -29,12 +29,16 @@ Producción local: `pnpm build` y `node apps/web/.next/standalone/apps/web/serve
 
 ## Estructura
 
-- `apps/web/src/app` — solo rutas: `(public)`, `(auth)`, `(app)`, `api/`.
-- `apps/web/src/modules/{donaciones,donantes,iam,auditoria,contenido}` — negocio hexagonal (domain → application → infrastructure / ui).
+- `apps/web/src/app` — rutas `(public)`, `(auth)`, `(app)` y `api/` (`/api/health`, `/api/webhooks/openpay/[secreto]`, `/api/cron/conciliacion`).
+- `apps/web/src/modules/{donaciones,donantes,iam,auditoria,contenido}` — negocio hexagonal (`domain` → `application` → `infrastructure` / `ui`).
 - `apps/web/src/flujos/donar` — flujo que cruza donaciones + donantes (esquema + server action).
-- `apps/web/src/server` — composition root (`container.ts`), `env.ts`, `auth-context.ts`, `acciones.ts`, CSP.
-- `apps/web/src/shared` — dominio transversal, puertos transversales, fuentes, tema.
-- `ADAPTADORES=memoria|real` en `container.ts` elige adaptadores. Los reales son esqueletos con comentarios `// SALOMÓN:`.
+- `apps/web/src/server` — composition root (`container.ts`), `env.ts`, `db/` (Drizzle ORM + contexto RLS), `auth-context.ts`, `acciones.ts`, CSP.
+- `apps/web/src/shared` — dominio transversal, puertos transversales, adaptadores compartidos (`limitador-redis.ts`, `verificador-turnstile.ts`), fuentes, tema.
+- `supabase/` y `scripts/alta-usuario-panel.mjs` — migraciones SQL (PostgreSQL 17, RLS `ENABLE` + `FORCE`, `custom_access_token_hook`) y alta administrativa de usuarios del panel.
+- `ADAPTADORES=memoria|real` en `apps/web/src/server/container.ts` elige los adaptadores:
+  - `memoria`: repositorios e identidad en memoria sin persistencia ni pasarela (solo pruebas locales; la pasarela simulada fue retirada).
+  - `real`: PostgreSQL / Supabase vía Drizzle ORM (`DATABASE_URL` por Supavisor y RLS), Supabase Auth con MFA TOTP obligatorio (`@supabase/ssr`, solo servidor), Openpay Colombia (checkout hospedado por redirección, webhook en `/api/webhooks/openpay/[secreto]` y cron `/api/cron/conciliacion`), Cloudflare Turnstile y limitador compartido opcional en Redis (`LIMITADOR_URL` con `apps/web/src/shared/infrastructure/limitador-redis.ts`).
+- Despliegue y CI: `Dockerfile` y `.dockerignore` (imagen `node:24-alpine` con `output: 'standalone'` y `HEALTHCHECK` en `/api/health`) y `.github/workflows/ci.yml` (`pnpm verify` en PR/push a `main` y publicación de imagen Docker en GHCR en `main`).
 
 Variables: ver `.env.example` (todas documentadas).
 

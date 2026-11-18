@@ -32,6 +32,7 @@ export class Actor {
     readonly rol: string,
     permisos: Iterable<Permiso>,
     readonly nivel: NivelAutenticacion,
+    readonly expiraEn?: Date | undefined,
   ) {
     this.#permisos = new Set(permisos)
   }

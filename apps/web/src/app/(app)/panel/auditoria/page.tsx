@@ -5,20 +5,19 @@ import { aPaginaAuditoria, type EntradaAuditoriaVM } from '@/modules/auditoria'
 import { requireActor } from '@/server/auth-context'
 import { obtenerContenedor } from '@/server/container'
 import { AccionAuditable } from '@/shared/domain/evento-auditable'
-import { Aro, Estado } from '@/shared/ui/panel/aro'
+import { Estado } from '@/shared/ui/panel/aro'
 import { Fecha } from '@/shared/ui/panel/datos'
 import { Icono } from '@/shared/ui/panel/iconos'
 import { Identificador } from '@/shared/ui/panel/identificador'
 import { EncabezadoPagina, EstadoPanel, Tarjeta, type Tono } from '@/shared/ui/panel/primitivas'
 import { SelectorRango } from '@/shared/ui/panel/selector-rango'
 import { Paginador } from '../_ui/paginador'
-import { LIMITE_PAGINA, leerPila, ParametrosAuditoria } from '../_ui/parametros'
-import { construirHref, normalizarParametros, type ParamsCrudos } from '../_ui/url'
+import { enlacesPaginacion, LIMITE_PAGINA, ParametrosAuditoria } from '../_ui/parametros'
+import { normalizarParametros, type ParamsCrudos } from '../_ui/url'
 
 export const metadata: Metadata = { title: 'Auditoría' }
 
 const BASE = '/panel/auditoria'
-const TOPE_ESCANEO = 1000
 
 const ETIQUETA: Readonly<Record<AccionAuditable, { texto: string; tono: Tono }>> = {
   'sesion.iniciada': { texto: 'Inicio de sesión', tono: 'ok' },
@@ -44,62 +43,25 @@ export default async function PaginaAuditoria({ searchParams }: { searchParams: 
   const p = ParametrosAuditoria.parse(normalizarParametros(await searchParams))
   const { auditoria } = await obtenerContenedor()
 
-  const filtros = { ...(p.accion ? { accion: p.accion } : {}), ...(p.actor ? { actorId: p.actor } : {}) }
-  const conFecha = Boolean(p.desde || p.hasta)
+  const filtros = {
+    ...(p.accion ? { accion: p.accion } : {}),
+    ...(p.actor ? { actorId: p.actor } : {}),
+    ...(p.desde ? { desde: new Date(`${p.desde}T00:00:00-05:00`) } : {}),
+    ...(p.hasta ? { hasta: new Date(`${p.hasta}T23:59:59.999-05:00`) } : {}),
+  }
   const base = { accion: p.accion, actor: p.actor, desde: p.desde, hasta: p.hasta }
   const hay = Boolean(p.accion || p.actor || p.desde || p.hasta)
 
-  let filas: readonly EntradaAuditoriaVM[]
-  let total: number
-  let anterior: string | null = null
-  let siguiente: string | null = null
-  let desdeFila: number
-  let truncado = false
-
-  if (!conFecha) {
-    const pagina = aPaginaAuditoria(
-      await auditoria.listarAuditoria(filtros, { limite: LIMITE_PAGINA, ...(p.cursor ? { cursor: p.cursor } : {}) }, actor),
-    )
-    const pila = leerPila(p.pila)
-    filas = pagina.elementos
-    total = pagina.total
-    desdeFila = (p.cursor ? Math.max(pila.length, 1) : 0) * LIMITE_PAGINA + 1
-    if (pagina.cursorSiguiente) {
-      siguiente = construirHref(BASE, { ...base, cursor: pagina.cursorSiguiente, pila: [...pila, p.cursor ?? '0'].join(',') })
-    }
-    if (p.cursor) {
-      const previo = pila.at(-1)
-      anterior = construirHref(BASE, {
-        ...base,
-        cursor: previo && previo !== '0' ? previo : undefined,
-        pila: pila.slice(0, -1).join(',') || undefined,
-      })
-    }
-  } else {
-    // El puerto no filtra por fecha: se recorre (acotado) y se filtra aquí por día de Colombia.
-    const desde = p.desde ? Date.parse(`${p.desde}T00:00:00-05:00`) : Number.NEGATIVE_INFINITY
-    const hasta = p.hasta ? Date.parse(`${p.hasta}T23:59:59.999-05:00`) : Number.POSITIVE_INFINITY
-    const todas: EntradaAuditoriaVM[] = []
-    let cursor: string | undefined
-    for (let vueltas = 0; vueltas < TOPE_ESCANEO / 100; vueltas++) {
-      const pagina = aPaginaAuditoria(
-        await auditoria.listarAuditoria(filtros, { limite: 100, ...(cursor ? { cursor } : {}) }, actor),
-      )
-      todas.push(...pagina.elementos)
-      if (!pagina.cursorSiguiente) break
-      cursor = pagina.cursorSiguiente
-      if (vueltas === TOPE_ESCANEO / 100 - 1) truncado = true
-    }
-    const dentro = todas.filter((e) => {
-      const t = Date.parse(e.ocurridoEn)
-      return t >= desde && t <= hasta
-    })
-    total = dentro.length
-    desdeFila = (p.pagina - 1) * LIMITE_PAGINA + 1
-    filas = dentro.slice(desdeFila - 1, desdeFila - 1 + LIMITE_PAGINA)
-    if (desdeFila - 1 + LIMITE_PAGINA < dentro.length) siguiente = construirHref(BASE, { ...base, pagina: p.pagina + 1 })
-    if (p.pagina > 1) anterior = construirHref(BASE, { ...base, pagina: p.pagina - 1 })
-  }
+  const pagina = aPaginaAuditoria(
+    await auditoria.listarAuditoria(filtros, { limite: LIMITE_PAGINA, ...(p.cursor ? { cursor: p.cursor } : {}) }, actor),
+  )
+  const filas = pagina.elementos
+  const total = pagina.total
+  const { desdeFila, anterior, siguiente } = enlacesPaginacion(BASE, base, {
+    cursor: p.cursor,
+    pila: p.pila,
+    cursorSiguiente: pagina.cursorSiguiente,
+  })
 
   return (
     <>
@@ -154,16 +116,6 @@ export default async function PaginaAuditoria({ searchParams }: { searchParams: 
           </div>
         </form>
       </search>
-
-      {conFecha ? (
-        <p className="pn-aviso pn-tono-info" style={{ marginBottom: '1.25rem' }}>
-          <Aro forma="punto" tamano={18} />
-          <span>
-            El filtro por fecha se aplica sobre los últimos 1.000 eventos que cumplen los demás filtros
-            {truncado ? ' (hay más que no se incluyen)' : ''}.
-          </span>
-        </p>
-      ) : null}
 
       <Tarjeta sinRelleno>
         {filas.length === 0 ? (

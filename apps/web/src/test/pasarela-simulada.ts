@@ -1,9 +1,9 @@
+import type { CargoConsultado, EstadoCargo, PasarelaPagos } from '@/modules/donaciones/application/ports/pasarela-pagos'
 import type { GeneradorIds } from '@/shared/application/ports/generador-ids'
 import { NoEncontrado } from '@/shared/domain/errores'
 import type { Importe } from '@/shared/domain/importe'
-import type { CargoConsultado, EstadoCargo, PasarelaPagos } from '../application/ports/pasarela-pagos'
 
-/** Ruta interna donde vive la pasarela simulada (solo con ADAPTADORES=memoria). */
+/** Ruta interna simulada en pruebas unitarias de casos de uso. */
 export const RUTA_PASARELA_SIMULADA = '/donar/pasarela-simulada'
 
 type CargoSimulado = {
@@ -25,20 +25,14 @@ export type VistaCargoSimulado = Readonly<{
 }>
 
 export type PasarelaSimulada = PasarelaPagos & {
-  /** Para pintar la página de la pasarela simulada. */
   verCargo(idCargo: string): VistaCargoSimulado | null
-  /** El "pagador" decide en la página simulada. Solo desde `pendiente`. Devuelve la URL de retorno. */
   resolverCargo(idCargo: string, resultado: 'aprobado' | 'rechazado'): string
-  /** Datos semilla: registra un cargo ya existente. */
   sembrar(cargo: Omit<CargoSimulado, 'descripcion' | 'urlRetorno'>): void
-  /** Tests: simula que la pasarela cambia un cargo (contracargo, reembolso, discrepancia). */
   forzarEstado(idCargo: string, estado: EstadoCargo, importe?: Importe): void
 }
 
 /**
- * Pasarela de pagos SIMULADA (entorno de pruebas). Imita el checkout
- * hospedado de Openpay: crea un cargo `pendiente` y devuelve una URL de pago
- * interna donde se elige aprobar o rechazar. Nunca pide datos de tarjeta.
+ * Pasarela de pagos simulada EXCLUSIVA para pruebas unitarias.
  */
 export function crearPasarelaSimulada(deps: { ids: GeneradorIds; urlBase: string }): PasarelaSimulada {
   const cargos = new Map<string, CargoSimulado>()

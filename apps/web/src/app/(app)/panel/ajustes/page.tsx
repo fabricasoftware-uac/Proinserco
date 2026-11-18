@@ -3,6 +3,7 @@ import { requireActor } from '@/server/auth-context'
 import { obtenerContenedor } from '@/server/container'
 import { obtenerEnv } from '@/server/env'
 import { Aro, Estado } from '@/shared/ui/panel/aro'
+import { Fecha } from '@/shared/ui/panel/datos'
 import { iniciales } from '@/shared/ui/panel/formato'
 import { EncabezadoPagina, Tarjeta } from '@/shared/ui/panel/primitivas'
 import { SelectorTema } from '@/shared/ui/tema/selector-tema'
@@ -62,11 +63,22 @@ export default async function PaginaAjustes() {
             <li>
               <span>
                 <strong>Sesiones abiertas</strong>
-                <small>El proveedor de identidad actual no expone la lista de sesiones ni su expiración.</small>
+                {actor.expiraEn ? (
+                  <small>
+                    Tu sesión vigente expira el <Fecha iso={actor.expiraEn.toISOString()} variante="linea" /> (hora Colombia). El
+                    listado multi-sesión aún no está disponible.
+                  </small>
+                ) : (
+                  <small>El listado de sesiones abiertas aún no está disponible con este proveedor de identidad.</small>
+                )}
               </span>
-              <Estado tono="neutro" forma="punteado">
-                No disponible
-              </Estado>
+              {actor.expiraEn ? (
+                <Estado tono="ok">Sesión vigente</Estado>
+              ) : (
+                <Estado tono="neutro" forma="punteado">
+                  No disponible
+                </Estado>
+              )}
             </li>
           </ul>
         </Tarjeta>

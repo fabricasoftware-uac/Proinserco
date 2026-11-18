@@ -4,9 +4,10 @@ import { z } from 'zod'
  * Máquina de estados de la donación (especificación + vault de pagos):
  *
  *   creada ──► pendiente ──► aprobada ──► reembolsada
- *                  │             └──────► contracargo
- *                  ├──► rechazada
- *                  └──► expirada
+ *      │           │             └──────► contracargo
+ *      │           ├──► rechazada
+ *      │           └──► expirada
+ *      └────────► expirada
  *
  * Las transiciones solo ocurren en servidor y nunca a partir de un estado
  * enviado por el navegador.
@@ -15,7 +16,7 @@ export const EstadoDonacion = z.enum(['creada', 'pendiente', 'aprobada', 'rechaz
 export type EstadoDonacion = z.infer<typeof EstadoDonacion>
 
 export const TRANSICIONES: Readonly<Record<EstadoDonacion, readonly EstadoDonacion[]>> = {
-  creada: ['pendiente'],
+  creada: ['pendiente', 'expirada'],
   pendiente: ['aprobada', 'rechazada', 'expirada'],
   aprobada: ['reembolsada', 'contracargo'],
   rechazada: [],

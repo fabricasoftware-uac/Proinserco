@@ -5,7 +5,6 @@ import { RutaSiguiente } from '@/modules/iam'
 import { obtenerActor } from '@/server/auth-context'
 import { Icono } from '@/shared/ui/panel/iconos'
 import { SelectorTema } from '@/shared/ui/tema/selector-tema'
-import { usuariosDemo } from './demo'
 import { FormularioAcceso } from './formulario-acceso'
 
 export const metadata: Metadata = { title: 'Acceso al panel' }
@@ -30,8 +29,6 @@ function AroMarca() {
 
 /**
  * Login + segundo factor (TOTP). Si ya hay sesión válida con MFA, va directo al panel.
- * La caja de demostración la decide el servidor: `usuariosDemo()` devuelve null salvo en
- * modo memoria fuera de producción, así que en producción nunca llega al navegador.
  */
 export default async function PaginaAcceso({ searchParams }: Props) {
   const consulta = await searchParams
@@ -40,8 +37,6 @@ export default async function PaginaAcceso({ searchParams }: Props) {
   const siguiente = RutaSiguiente.parse(bruto)
 
   if (await obtenerActor()) redirect(siguiente)
-
-  const demo = await usuariosDemo()
 
   return (
     <main className="pn-acceso">
@@ -68,7 +63,7 @@ export default async function PaginaAcceso({ searchParams }: Props) {
         <div className="pn-acceso-caja">
           <h1>Entra al panel</h1>
           <p className="pn-acceso-sub">Con tu correo, tu contraseña y el código de tu app autenticadora.</p>
-          <FormularioAcceso siguiente={siguiente} demo={demo} />
+          <FormularioAcceso siguiente={siguiente} />
           <p className="pn-acceso-pie">
             <Link href="/">
               <Icono nombre="flecha-izq" tamano={15} />

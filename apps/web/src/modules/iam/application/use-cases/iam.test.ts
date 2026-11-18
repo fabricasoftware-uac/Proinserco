@@ -6,9 +6,8 @@ import { crearRelojFijo } from '@/shared/infrastructure/reloj'
 import { AHORA, actorDe, crearIdsSecuenciales } from '@/test/mundo-memoria'
 import { CodigoMfaInvalido, CredencialesInvalidas, DesafioMfaExpirado } from '../../domain/errores'
 import { RutaSiguiente } from '../../domain/esquemas'
-import { crearIdentityProviderMemoria } from '../../infrastructure/identity-provider-memoria'
+import { crearIdentityProviderMemoria, type UsuarioMemoria } from '../../infrastructure/identity-provider-memoria'
 import { generarTotp } from '../../infrastructure/totp'
-import { USUARIOS_DEMO } from '../../infrastructure/usuarios-demo'
 import type { AlmacenCookies } from '../ports/almacen-cookies'
 import { crearCerrarSesion } from './cerrar-sesion'
 import { crearIniciarSesion } from './iniciar-sesion'
@@ -26,15 +25,26 @@ function crearCookies(): AlmacenCookies & { mapa: Map<string, string> } {
   }
 }
 
-const [ADMIN] = USUARIOS_DEMO
-if (!ADMIN) throw new Error('Faltan usuarios demo')
+const USUARIOS_TEST: readonly UsuarioMemoria[] = [
+  {
+    id: 'usr_test_admin',
+    correo: 'admin@test.proinserco.test',
+    nombre: 'Administración (test)',
+    rol: 'administrador',
+    contrasena: 'Test-Proinserco-2026!',
+    secretoTotp: 'JBSWY3DPEHPK3PXP',
+  },
+]
+
+const [ADMIN] = USUARIOS_TEST
+if (!ADMIN) throw new Error('Faltan usuarios de test')
 
 function crearIam() {
   const reloj = crearRelojFijo(AHORA)
   const ids = crearIdsSecuenciales()
   const registro = crearRegistroAuditoriaMemoria()
   const auditor = { registrar: crearRegistrarAuditoria({ registro, reloj, ids }) }
-  const identidad = crearIdentityProviderMemoria(USUARIOS_DEMO, reloj, {
+  const identidad = crearIdentityProviderMemoria(USUARIOS_TEST, reloj, {
     secreto: 'x'.repeat(40),
     cookiesSeguras: true,
     nombreCookieSesion: '__Host-sesion',
@@ -63,6 +73,7 @@ describe('inicio de sesión con segundo factor', () => {
     await iam.verificar({ codigo: generarTotp(ADMIN.secretoTotp, iam.reloj.ahora()) }, cookies, null)
     const actor = await iam.obtenerActor(cookies)
     expect(actor?.nivel).toBe('aal2')
+    expect(actor?.expiraEn).toBeInstanceOf(Date)
     expect(actor?.puede('donantes:revelar')).toBe(true)
     expect(cookies.mapa.has('__Host-mfa')).toBe(false)
   })

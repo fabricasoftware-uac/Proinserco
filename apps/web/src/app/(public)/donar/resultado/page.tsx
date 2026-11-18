@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import { ReintentoConsulta } from '@/flujos/donar/reintento-consulta'
 import { CONTENIDO_SITIO } from '@/modules/contenido'
 import { obtenerContenedor } from '@/server/container'
+import { ejecutarConContextoDb } from '@/server/db/contexto-db'
 import { NoEncontrado } from '@/shared/domain/errores'
 import { formatearPesos } from '@/shared/lib/formato-moneda'
 
@@ -23,10 +24,12 @@ export default async function PaginaResultadoDonacion({
 }) {
   const { referencia } = await searchParams
   const { donaciones } = await obtenerContenedor()
-  const resultado = await donaciones.consultarResultado(referencia).catch((e: unknown) => {
-    if (e instanceof NoEncontrado) notFound()
-    throw e
-  })
+  const resultado = await ejecutarConContextoDb({ modo: 'sistema' }, () => donaciones.consultarResultado(referencia)).catch(
+    (e: unknown) => {
+      if (e instanceof NoEncontrado) notFound()
+      throw e
+    },
+  )
   const { estado, montoPesos } = resultado
   const { contacto } = CONTENIDO_SITIO
   const fechaDonacion = FORMATO_FECHA.format(resultado.fecha)

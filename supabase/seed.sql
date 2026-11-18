@@ -1,0 +1,11 @@
+-- ============================================================================
+-- Semilla base de Supabase (`supabase/seed.sql`)
+--
+-- Este archivo se ejecuta al final de `supabase db reset`.
+-- Por seguridad, NO contiene secretos, contraseñas ni datos ficticios de demo
+-- que puedan contaminar staging o producción.
+--
+-- El alta de cuentas administrativas del panel se realiza fuera de SQL con:
+--   node --env-file=apps/web/.env.local scripts/alta-usuario-panel.mjs \
+--     --correo admin@proinserco.org --nombre "Nombre Admin" --rol administrador
+-- ============================================================================

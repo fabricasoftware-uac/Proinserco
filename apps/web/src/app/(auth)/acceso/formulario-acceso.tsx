@@ -2,17 +2,14 @@
 
 import { useAction } from 'next-safe-action/hooks'
 import { type CSSProperties, type FormEvent, Fragment, useEffect, useId, useRef, useState } from 'react'
+import type { EnrolamientoMfaPendiente } from '@/modules/iam'
 import { iniciarSesionAccion, verificarSegundoFactorAccion } from '@/modules/iam/ui/acciones'
 import { Aro } from '@/shared/ui/panel/aro'
 import { Icono } from '@/shared/ui/panel/iconos'
-import { codigoDemoAccion } from './acciones-demo'
-import type { UsuarioDemoVista } from './demo'
 
 type Props = {
   /** Ruta validada en el servidor (solo /panel…). */
   siguiente: string
-  /** Solo viene con valor en modo memoria fuera de producción; en otro caso, null. */
-  demo: readonly UsuarioDemoVista[] | null
 }
 
 type ErrorVista = Readonly<{ codigo: string; mensaje: string }>
@@ -20,32 +17,49 @@ type ErrorVista = Readonly<{ codigo: string; mensaje: string }>
 const MENSAJE_BLOQUEO =
   'Demasiados intentos. Por seguridad, el acceso queda bloqueado temporalmente: espera unos minutos antes de volver a intentarlo.'
 
+function formatearEspera(segundos: number): string {
+  if (segundos >= 60) {
+    const minutos = Math.ceil(segundos / 60)
+    return `${minutos} ${minutos === 1 ? 'minuto' : 'minutos'}`
+  }
+  return `${segundos} ${segundos === 1 ? 'segundo' : 'segundos'}`
+}
+
 function aMensaje(error: {
-  serverError?: { codigo: string; mensaje: string } | undefined
+  serverError?: { codigo: string; mensaje: string; reintentarEnSegundos?: number } | undefined
   validationErrors?: unknown
 }): ErrorVista {
   const e = error.serverError
-  if (e?.codigo === 'DEMASIADAS_PETICIONES') return { codigo: e.codigo, mensaje: MENSAJE_BLOQUEO }
+  if (e?.codigo === 'DEMASIADAS_PETICIONES') {
+    const segundos = e.reintentarEnSegundos
+    const mensaje =
+      typeof segundos === 'number' && Number.isFinite(segundos) && segundos > 0
+        ? `Demasiados intentos. Por seguridad, el acceso queda bloqueado temporalmente: espera ${formatearEspera(Math.ceil(segundos))} antes de volver a intentarlo.`
+        : MENSAJE_BLOQUEO
+    return { codigo: e.codigo, mensaje }
+  }
   if (e) return { codigo: e.codigo, mensaje: e.mensaje }
   if (error.validationErrors) return { codigo: 'VALIDACION', mensaje: 'Revisa los datos e inténtalo de nuevo.' }
   return { codigo: 'DESCONOCIDO', mensaje: 'No pudimos completar la acción. Inténtalo de nuevo.' }
 }
 
-export function FormularioAcceso({ siguiente, demo }: Props) {
+export function FormularioAcceso({ siguiente }: Props) {
   const [paso, setPaso] = useState<'credenciales' | 'codigo'>('credenciales')
   const [correo, setCorreo] = useState('')
   const [contrasena, setContrasena] = useState('')
   const [verContrasena, setVerContrasena] = useState(false)
   const [codigo, setCodigo] = useState('')
+  const [enrolamientoMfa, setEnrolamientoMfa] = useState<EnrolamientoMfaPendiente | null>(null)
   const [error, setError] = useState<ErrorVista | null>(null)
   const idCorreo = useId()
   const idContrasena = useId()
   const idError = useId()
 
   const sesion = useAction(iniciarSesionAccion, {
-    onSuccess: () => {
+    onSuccess: ({ data }) => {
       setError(null)
       setCodigo('')
+      setEnrolamientoMfa(data?.enrolamientoMfa ?? null)
       setPaso('codigo')
     },
     onError: ({ error: e }) => setError(aMensaje(e)),
@@ -59,13 +73,10 @@ export function FormularioAcceso({ siguiente, demo }: Props) {
       // El desafío caducó: hay que volver a escribir correo y contraseña.
       if (vista.codigo === 'DESAFIO_MFA_EXPIRADO') {
         setContrasena('')
+        setEnrolamientoMfa(null)
         setPaso('credenciales')
       }
     },
-  })
-
-  const codigoDemo = useAction(codigoDemoAccion, {
-    onSuccess: ({ data }) => data && setCodigo(data.codigo),
   })
 
   function enviarCredenciales(e: FormEvent) {
@@ -184,6 +195,7 @@ export function FormularioAcceso({ siguiente, demo }: Props) {
         <PasoCodigo
           codigo={codigo}
           setCodigo={setCodigo}
+          enrolamientoMfa={enrolamientoMfa}
           ocupado={ocupado}
           enviando={mfa.isPending}
           conError={Boolean(error) && !bloqueado}
@@ -192,70 +204,26 @@ export function FormularioAcceso({ siguiente, demo }: Props) {
             setError(null)
             setCodigo('')
             setContrasena('')
+            setEnrolamientoMfa(null)
             setPaso('credenciales')
           }}
         />
       )}
-
-      {demo ? (
-        <aside className="pn-demo" aria-label="Entorno de demostración">
-          <p className="pn-demo-cab">
-            <Aro forma="marca" tono="aviso" tamano={18} />
-            Entorno de demostración
-          </p>
-          <p>Datos ficticios con adaptadores en memoria. Esta caja no existe en producción.</p>
-          {demo.map((u) => (
-            <div key={u.correo} className="pn-demo-usuario">
-              <dl>
-                <dt>Rol</dt>
-                <dd className="pn-demo-rol">
-                  {u.rol} · {u.nota}
-                </dd>
-                <dt>Correo</dt>
-                <dd>{u.correo}</dd>
-                <dt>Contraseña</dt>
-                <dd>{u.contrasena}</dd>
-              </dl>
-              <div className="pn-demo-fila">
-                {paso === 'credenciales' ? (
-                  <button
-                    type="button"
-                    className="pn-boton pn-boton--chico"
-                    onClick={() => {
-                      setCorreo(u.correo)
-                      setContrasena(u.contrasena)
-                    }}
-                  >
-                    Rellenar
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="pn-boton pn-boton--chico"
-                    disabled={codigoDemo.isPending || u.correo !== correo.trim().toLowerCase()}
-                    onClick={() => codigoDemo.execute({ correo: u.correo })}
-                  >
-                    Usar código actual
-                  </button>
-                )}
-              </div>
-              <details>
-                <summary>Secreto para tu app autenticadora</summary>
-                <code>{u.secretoTotp}</code>
-              </details>
-            </div>
-          ))}
-        </aside>
-      ) : null}
     </>
   )
 }
 
 const CELDAS = ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'] as const
 
+function urlQr(qrSvg: string): string {
+  const limpio = qrSvg.trimStart()
+  return limpio.startsWith('<svg') ? `data:image/svg+xml;utf-8,${encodeURIComponent(limpio)}` : qrSvg
+}
+
 function PasoCodigo({
   codigo,
   setCodigo,
+  enrolamientoMfa,
   ocupado,
   enviando,
   conError,
@@ -264,6 +232,7 @@ function PasoCodigo({
 }: {
   codigo: string
   setCodigo: (v: string) => void
+  enrolamientoMfa: EnrolamientoMfaPendiente | null
   ocupado: boolean
   enviando: boolean
   conError: boolean
@@ -274,6 +243,7 @@ function PasoCodigo({
   const [enfocado, setEnfocado] = useState(false)
   const ultimoEnviado = useRef('')
   const idEntrada = useId()
+  const idTituloEnrolamiento = useId()
 
   useEffect(() => {
     entrada.current?.focus()
@@ -304,7 +274,26 @@ function PasoCodigo({
         if (codigo.length === 6 && !ocupado) onEnviar(codigo)
       }}
     >
-      <p className="pn-otp-texto">Abre tu app autenticadora y escribe los 6 dígitos que ves ahora.</p>
+      {enrolamientoMfa ? (
+        <section className="pn-mfa-enrolamiento" aria-labelledby={idTituloEnrolamiento}>
+          <h2 id={idTituloEnrolamiento} className="pn-mfa-titulo">
+            Activa tu verificación en dos pasos
+          </h2>
+          <p className="pn-otp-texto">
+            Escanea este código QR con tu app autenticadora y escribe el primer código de 6 dígitos para confirmar.
+          </p>
+          <div className="pn-mfa-qr">
+            {/* biome-ignore lint/performance/noImgElement: código QR SVG en data URI emitido por el servidor */}
+            <img src={urlQr(enrolamientoMfa.qrSvg)} alt="Código QR para app autenticadora" width={180} height={180} />
+          </div>
+          <details className="pn-mfa-secreto">
+            <summary>¿No puedes escanear el código? Usar clave manual</summary>
+            <code>{enrolamientoMfa.secreto}</code>
+          </details>
+        </section>
+      ) : (
+        <p className="pn-otp-texto">Abre tu app autenticadora y escribe los 6 dígitos que ves ahora.</p>
+      )}
       <div>
         <label className="pn-solo-lectores" htmlFor={idEntrada}>
           Código de verificación de 6 dígitos

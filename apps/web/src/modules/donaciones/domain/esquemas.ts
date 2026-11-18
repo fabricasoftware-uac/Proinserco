@@ -24,6 +24,10 @@ export const FiltrosDonaciones = z.object({
   q: z.string().trim().min(2).max(100).optional().catch(undefined),
   desde: z.coerce.date().optional().catch(undefined),
   hasta: z.coerce.date().optional().catch(undefined),
+  minCentavos: z.coerce.bigint().nonnegative().optional().catch(undefined),
+  maxCentavos: z.coerce.bigint().nonnegative().optional().catch(undefined),
+  orden: z.enum(['fecha', 'monto', 'estado']).optional().catch(undefined),
+  dir: z.enum(['asc', 'desc']).optional().catch(undefined),
 })
 export type FiltrosDonaciones = z.infer<typeof FiltrosDonaciones>
 

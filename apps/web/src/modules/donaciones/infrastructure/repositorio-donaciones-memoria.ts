@@ -1,7 +1,21 @@
-import { paginarDescendente } from '@/shared/domain/paginacion'
+import { type ClaveCursor, paginarOrdenado } from '@/shared/domain/paginacion'
 import type { RepositorioDonaciones } from '../application/ports/repositorio-donaciones'
 import { type DatosDonacion, Donacion } from '../domain/donacion'
 import type { FiltrosDonaciones } from '../domain/esquemas'
+
+type Orden = NonNullable<FiltrosDonaciones['orden']>
+type Dir = NonNullable<FiltrosDonaciones['dir']>
+
+function claveDeOrden(d: DatosDonacion, orden: Orden, dir: Dir): ClaveCursor {
+  const en =
+    orden === 'monto' ? d.importe.centavos.toString().padStart(20, '0') : orden === 'estado' ? d.estado : d.creadaEn.toISOString()
+  return { en, id: d.id, o: `${orden}:${dir}` }
+}
+
+function compararClaves(a: ClaveCursor, b: ClaveCursor, dir: Dir): number {
+  const cmp = a.en < b.en ? -1 : a.en > b.en ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+  return dir === 'asc' ? cmp : -cmp
+}
 
 /**
  * Adaptador EN MEMORIA (demo y tests). Se pierde al reiniciar el proceso.
@@ -21,6 +35,8 @@ export function crearRepositorioDonacionesMemoria(): RepositorioDonaciones {
     if (f.linea && d.linea !== f.linea) return false
     if (f.desde && d.creadaEn < f.desde) return false
     if (f.hasta && d.creadaEn > f.hasta) return false
+    if (f.minCentavos !== undefined && d.importe.centavos < f.minCentavos) return false
+    if (f.maxCentavos !== undefined && d.importe.centavos > f.maxCentavos) return false
     if (f.q) {
       const q = f.q.toLowerCase()
       if (!d.referencia.toLowerCase().includes(q) && !d.pagador.correo.toLowerCase().includes(q)) return false
@@ -55,8 +71,14 @@ export function crearRepositorioDonacionesMemoria(): RepositorioDonaciones {
     buscarPorIdCargo: async (idCargo) => buscar((d) => d.idCargo === idCargo),
     buscarPorClaveIdempotencia: async (clave) => buscar((d) => d.claveIdempotencia === clave),
     async listar(filtros, paginacion) {
-      const lista = ordenadas([...filas.values()].filter((d) => coincide(d, filtros)))
-      const pagina = paginarDescendente(lista, (d) => ({ en: d.creadaEn.toISOString(), id: d.id }), paginacion)
+      const orden: Orden = filtros.orden ?? 'fecha'
+      const dir: Dir = filtros.dir ?? 'desc'
+      const criterio = `${orden}:${dir}`
+      const clave = (d: DatosDonacion) => claveDeOrden(d, orden, dir)
+      const lista = [...filas.values()]
+        .filter((d) => coincide(d, filtros))
+        .sort((a, b) => compararClaves(clave(a), clave(b), dir))
+      const pagina = paginarOrdenado(lista, clave, paginacion, dir, criterio)
       return { ...pagina, elementos: pagina.elementos.map(aDominio) }
     },
     async listarDesde(desde) {

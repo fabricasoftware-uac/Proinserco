@@ -1,0 +1,13 @@
+.git
+.github
+**/node_modules
+**/.next
+.env*
+supabase/.temp
+docs
+**/playwright-report
+**/test-results
+**/coverage
+.turbo
+*.log
+.DS_Store

@@ -2,18 +2,46 @@
  * Content Security Policy con nonce (vault: 03 - Seguridad/Cabeceras y CSP).
  * Sin `server-only`: la usa src/proxy.ts. Función pura y testeada.
  *
- * Orígenes de terceros permitidos: SOLO Cloudflare Turnstile
- * (script + iframe del desafío). Nada más: fuentes e imágenes son propias.
+ * Orígenes de terceros permitidos:
+ *  - Cloudflare Turnstile (script + iframe del desafío).
+ *  - Openpay Colombia SOLO en `form-action` (redirección del formulario POST
+ *    sin JavaScript hacia el checkout hospedado). Nunca en `script-src`,
+ *    `connect-src` ni `frame-src`.
  */
 const TURNSTILE = 'https://challenges.cloudflare.com'
+const OPENPAY_SANDBOX = 'https://sandbox-api.openpay.co'
+const OPENPAY_PRODUCCION = ['https://api.openpay.co', 'https://checkout.openpay.co'] as const
 
 export type OpcionesCsp = Readonly<{
   nonce: string
   esDesarrollo: boolean
   esHttps: boolean
+  openpaySandbox?: boolean | undefined
+  origenCheckoutOpenpay?: string | undefined
 }>
 
-export function construirCsp({ nonce, esDesarrollo, esHttps }: OpcionesCsp): string {
+/** Valida que un origen opcional use HTTPS sin credenciales y devuelve solo `origin`. */
+export function normalizarOrigenHttps(valor: string | undefined): string | null {
+  const limpio = valor?.trim()
+  if (!limpio) return null
+  try {
+    const url = new URL(limpio)
+    if (url.protocol !== 'https:' || url.username || url.password) return null
+    return url.origin
+  } catch {
+    return null
+  }
+}
+
+export function construirCsp({ nonce, esDesarrollo, esHttps, openpaySandbox, origenCheckoutOpenpay }: OpcionesCsp): string {
+  const origenesFormAction = new Set<string>([
+    "'self'",
+    ...(esDesarrollo ? [OPENPAY_SANDBOX] : OPENPAY_PRODUCCION),
+    ...(openpaySandbox ? [OPENPAY_SANDBOX] : []),
+  ])
+  const origenExtra = normalizarOrigenHttps(origenCheckoutOpenpay)
+  if (origenExtra) origenesFormAction.add(origenExtra)
+
   const directivas = [
     `default-src 'self'`,
     // 'strict-dynamic': lo que carga un script con nonce hereda la confianza (así funciona
@@ -32,10 +60,7 @@ export function construirCsp({ nonce, esDesarrollo, esHttps }: OpcionesCsp): str
     `media-src 'self'`,
     `object-src 'none'`,
     `base-uri 'self'`,
-    // SALOMÓN: cuando se conozca el host del checkout hospedado de Openpay, añadirlo
-    // aquí: sin JavaScript, el formulario de donar hace un POST que redirige a la
-    // pasarela y Chrome aplica form-action también a esa redirección.
-    `form-action 'self'`,
+    `form-action ${[...origenesFormAction].join(' ')}`,
     `frame-ancestors 'none'`,
   ]
   if (esHttps) directivas.push('upgrade-insecure-requests')

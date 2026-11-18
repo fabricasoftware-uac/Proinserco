@@ -17,7 +17,9 @@ export function crearRegistroAuditoriaMemoria(maximo = 10_000): RegistroAuditori
             (!filtros.accion || e.accion === filtros.accion) &&
             (!filtros.actorId || e.actorId === filtros.actorId) &&
             (!filtros.recurso || e.recurso === filtros.recurso) &&
-            (!filtros.recursoId || e.recursoId === filtros.recursoId),
+            (!filtros.recursoId || e.recursoId === filtros.recursoId) &&
+            (!filtros.desde || e.ocurridoEn >= filtros.desde) &&
+            (!filtros.hasta || e.ocurridoEn <= filtros.hasta),
         )
         .sort((a, b) => b.ocurridoEn.getTime() - a.ocurridoEn.getTime() || (b.id < a.id ? -1 : 1))
       return paginarDescendente(lista, (e) => ({ en: e.ocurridoEn.toISOString(), id: e.id }), paginacion)

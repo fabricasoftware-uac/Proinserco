@@ -36,6 +36,15 @@ export function basicAuthValido(cabecera: string | null, usuario: string, contra
   return okUsuario && okContrasena
 }
 
+/** Valida una cabecera `Authorization: Bearer …` contra el secreto esperado en tiempo constante. */
+export function bearerTokenValido(cabecera: string | null, secretoEsperado: string): boolean {
+  if (!cabecera || !secretoEsperado || cabecera.length > 512) return false
+  if (!cabecera.startsWith('Bearer ')) return false
+  const token = cabecera.slice(7)
+  if (!token) return false
+  return igualesConstante(token, secretoEsperado)
+}
+
 export class CuerpoDemasiadoGrande extends Error {}
 
 /** Lee el cuerpo como texto cortando en `maxBytes`: nunca `request.json()` a ciegas. */

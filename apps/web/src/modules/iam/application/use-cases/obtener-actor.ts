@@ -20,6 +20,7 @@ export function crearObtenerActor(deps: Dependencias) {
       identidad.rol,
       PERMISOS_POR_ROL[identidad.rol],
       identidad.nivel,
+      identidad.expiraEn,
     )
   }
 }
