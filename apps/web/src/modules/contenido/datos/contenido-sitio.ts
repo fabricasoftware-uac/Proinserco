@@ -224,7 +224,7 @@ export const CONTENIDO_SITIO = {
         rol: 'Directora de Proyectos',
         descripcion:
           'Con una trayectoria probada en la gestión y dirección, Sharly es la fuerza motriz detrás de la ejecución de cada proyecto. Su capacidad para coordinar equipos, optimizar recursos y mantener el enfoque en los objetivos nos permite entregar resultados eficientes y de alta calidad en cada etapa.',
-        foto: { src: '/img/equipo/sharly.jpg', ancho: 1000, alto: 1365 },
+        foto: { src: '/img/equipo/sharly-v2.jpg', ancho: 1000, alto: 1365 },
       },
       {
         id: 'jorge-e-orozco-zuniga',
@@ -232,7 +232,7 @@ export const CONTENIDO_SITIO = {
         rol: 'Ingeniero',
         descripcion:
           'Jorge aporta el rigor técnico y la precisión que garantizan la viabilidad y robustez de nuestras soluciones. Su profundo conocimiento en Ingeniería Mecánica es clave para superar desafíos y asegurar que cada diseño sea innovador y funcional.',
-        foto: { src: '/img/equipo/jorge-e-orozco-zuniga.jpg', ancho: 1000, alto: 1250 },
+        foto: { src: '/img/equipo/jorge-e-orozco-zuniga-v2.jpg', ancho: 1000, alto: 1250 },
       },
       {
         id: 'dora-stella',
@@ -240,7 +240,7 @@ export const CONTENIDO_SITIO = {
         rol: 'Arquitecta',
         descripcion:
           'La visión creativa y el ojo experto de Dora Stella son esenciales para transformar ideas en espacios funcionales y estéticamente atractivos. Su habilidad para diseñar entornos que combinan belleza y utilidad nos permite crear proyectos que no solo cumplen con las expectativas, sino que las superan.',
-        foto: { src: '/img/equipo/dora-stella.jpg', ancho: 1000, alto: 1125 },
+        foto: { src: '/img/equipo/dora-stella-v2.jpg', ancho: 1000, alto: 1125 },
       },
       {
         id: 'luisa-maria',
@@ -248,7 +248,7 @@ export const CONTENIDO_SITIO = {
         rol: 'Diseñadora',
         descripcion:
           'Luisa María da forma y voz visual a cada proyecto. Su sensibilidad estética y su atención al detalle convierten ideas complejas en piezas claras y cercanas, para que cada iniciativa llegue a la comunidad con una imagen coherente, honesta y fácil de comprender.',
-        foto: { src: '/img/equipo/luisa-maria.jpg', ancho: 1000, alto: 1250 },
+        foto: { src: '/img/equipo/luisa-maria-v2.jpg', ancho: 1000, alto: 1250 },
       },
     ],
   },
