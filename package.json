@@ -5,7 +5,7 @@
   "description": "Sitio y panel de la FundaciÃƒÂ³n Proinserco (PopayÃƒÂ¡n, Cauca)",
   "packageManager": "pnpm@12.21.0",
   "engines": {
-    "node": "24.x",
+    "node": ">=24.11.0",
     "pnpm": ">=12.21.0"
   },
   "scripts": {
