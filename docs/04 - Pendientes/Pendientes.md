@@ -29,7 +29,7 @@ Fuente: `PENDIENTES_CONTENIDO` en `apps/web/src/modules/contenido/datos/contenid
 | P2 | Montos sugeridos y destino de los fondos; si expide certificado de donación | Cliente |
 | P2 | Elegir o fusionar la misión del PPTX y la del sitio Wix | Cliente |
 | P1 | Cuenta de Openpay Colombia (comercio, llaves, webhook) | Cliente con Salomón |
-| P2 | Fotos del equipo: las actuales son de baja resolución; pedir los originales a la fundación | Cliente, vía Michael |
+| P2 | Fotos del equipo: ya en alta resolución (Sharly, Jorge E., Dora Stella, Luisa María); falta la de Jorge Eduardo. Validar con la fundación la descripción redactada para Luisa María | Cliente, vía Michael |
 
 ## De backend (Salomón)
 
