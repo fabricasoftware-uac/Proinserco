@@ -1,8 +1,11 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import { CONTENIDO_SITIO } from '@/modules/contenido'
 import { DatosResponsable, PlantillaLegal, PorDefinir, type SeccionLegal, TablaLegal } from '@/shared/ui/legal/plantilla-legal'
 
 export const metadata: Metadata = { title: 'Política de tratamiento de datos personales' }
+
+const { contacto } = CONTENIDO_SITIO
 
 const secciones: readonly SeccionLegal[] = [
   { id: 'responsable', titulo: 'Responsable del tratamiento', contenido: <DatosResponsable /> },
@@ -91,9 +94,8 @@ const secciones: readonly SeccionLegal[] = [
     contenido: (
       <>
         <p>
-          Escribe a <PorDefinir>correo oficial de la fundación</PorDefinir> o llama al +57 300 651 8013, indicando tu nombre,
-          documento, qué quieres (consulta, corrección, supresión o revocación) y dónde responderte. Podemos pedirte confirmar tu
-          identidad.
+          Escribe a {contacto.correo} o llama al {contacto.telefono}, indicando tu nombre, documento, qué quieres (consulta,
+          corrección, supresión o revocación) y dónde responderte. Podemos pedirte confirmar tu identidad.
         </p>
         <ul>
           <li>Consultas: respuesta en un máximo de 10 días hábiles (prorrogable, avisándote el motivo).</li>

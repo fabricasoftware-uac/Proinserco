@@ -16,11 +16,11 @@ export const Imagen = z.object({ src: RutaPublica, ancho: z.number().int().posit
 export const Organizacion = z.object({
   nombre: Texto,
   nombreCorto: Texto,
+  razonSocial: Texto,
   lema: Texto,
   aniosExperiencia: z.number().int().positive(),
   descripcionCorta: Texto,
-  /** NIT, RTE, razón social: no constan en ninguna fuente. */
-  nit: z.literal('TODO-CONTENIDO'),
+  nit: z.union([Texto, z.literal('TODO-CONTENIDO')]),
 })
 
 export const Contacto = z.object({

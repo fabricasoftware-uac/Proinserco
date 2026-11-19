@@ -1,8 +1,11 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import { CONTENIDO_SITIO } from '@/modules/contenido'
 import { PlantillaLegal, PorDefinir, type SeccionLegal } from '@/shared/ui/legal/plantilla-legal'
 
 export const metadata: Metadata = { title: 'Política de donaciones' }
+
+const { contacto } = CONTENIDO_SITIO
 
 const secciones: readonly SeccionLegal[] = [
   {
@@ -32,8 +35,8 @@ const secciones: readonly SeccionLegal[] = [
     contenido: (
       <>
         <p>
-          El pago se hace en la página segura de Openpay, no en este sitio. Los medios disponibles son los que Openpay habilite:{' '}
-          <PorDefinir>medios de pago habilitados en la cuenta de la fundación</PorDefinir>.
+          El pago se hace en la página segura de Openpay, no en este sitio. Los medios disponibles son los habilitados por Openpay
+          Colombia: tarjeta de crédito o débito, PSE (débito bancario) y pago en efectivo en puntos de recaudo autorizados.
         </p>
         <p>Nunca te pedimos ni guardamos datos de tarjeta. El monto se valida en nuestro servidor antes de enviarte al pago.</p>
       </>
@@ -74,8 +77,8 @@ const secciones: readonly SeccionLegal[] = [
     contenido: (
       <p>
         Si te equivocaste de monto, cobramos dos veces o tus datos del certificado están mal, escríbenos pronto a{' '}
-        <PorDefinir>correo oficial de la fundación</PorDefinir> o llama al +57 300 651 8013, con tu referencia. Estudiaremos cada
-        caso; las devoluciones se hacen por el mismo medio de pago.{' '}
+        {contacto.correo} o llama al {contacto.telefono}, con tu referencia. Estudiaremos cada caso; las devoluciones se hacen por
+        el mismo medio de pago.{' '}
         <PorDefinir>plazo y condiciones para solicitar una reversión, a definir con la fundación y el abogado</PorDefinir>
       </p>
     ),

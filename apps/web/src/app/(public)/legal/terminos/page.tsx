@@ -1,8 +1,11 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import { CONTENIDO_SITIO } from '@/modules/contenido'
 import { PlantillaLegal, PorDefinir, type SeccionLegal } from '@/shared/ui/legal/plantilla-legal'
 
 export const metadata: Metadata = { title: 'Términos y condiciones' }
+
+const { organizacion, contacto } = CONTENIDO_SITIO
 
 const secciones: readonly SeccionLegal[] = [
   {
@@ -10,8 +13,9 @@ const secciones: readonly SeccionLegal[] = [
     titulo: 'Quiénes somos',
     contenido: (
       <p>
-        Este sitio es de la Fundación Proinserco (<PorDefinir>razón social y NIT</PorDefinir>), fundación sin ánimo de lucro con
-        domicilio en Popayán, Cauca, Colombia. Al usarlo aceptas estos términos.
+        Este sitio es de la {organizacion.nombre} ({organizacion.razonSocial}, NIT {organizacion.nit}), fundación sin ánimo de
+        lucro con domicilio en {contacto.direccion}, barrio {contacto.barrio}, {contacto.ciudad}, {contacto.departamento},{' '}
+        {contacto.pais}. Al usarlo aceptas estos términos.
       </p>
     ),
   },
@@ -85,7 +89,8 @@ const secciones: readonly SeccionLegal[] = [
     titulo: 'Contacto',
     contenido: (
       <p>
-        Teléfono +57 300 651 8013 · Correo <PorDefinir>correo oficial de la fundación</PorDefinir>
+        Teléfono {contacto.telefono} · Correo {contacto.correo} · Dirección: {contacto.direccion}, barrio {contacto.barrio},{' '}
+        {contacto.ciudad}, {contacto.departamento}
       </p>
     ),
   },

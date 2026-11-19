@@ -26,15 +26,15 @@ export function PorDefinir({ children }: { children: ReactNode }) {
 
 /** Datos del responsable: lo conocido sale del contenido fuente; lo demás, marcador. */
 export function DatosResponsable() {
-  const c = CONTENIDO_SITIO.contacto
+  const { organizacion, contacto: c } = CONTENIDO_SITIO
   return (
     <ul>
       <li>
-        <strong>Nombre:</strong> Fundación Proinserco (PROINSERCO), fundación sin ánimo de lucro. Razón social exacta:{' '}
-        <PorDefinir>razón social registrada</PorDefinir>.
+        <strong>Nombre:</strong> {organizacion.nombre} (PROINSERCO), fundación sin ánimo de lucro. Razón social:{' '}
+        {organizacion.razonSocial}.
       </li>
       <li>
-        <strong>NIT:</strong> <PorDefinir>NIT de la fundación</PorDefinir>
+        <strong>NIT:</strong> {organizacion.nit}
       </li>
       <li>
         <strong>Domicilio:</strong> {c.direccion}, barrio {c.barrio}, {c.ciudad}, {c.departamento}, {c.pais}.
@@ -43,7 +43,7 @@ export function DatosResponsable() {
         <strong>Teléfono:</strong> {c.telefono}
       </li>
       <li>
-        <strong>Correo para asuntos de datos personales:</strong> <PorDefinir>correo oficial de la fundación</PorDefinir>
+        <strong>Correo para asuntos de datos personales:</strong> {c.correo}
       </li>
       <li>
         <strong>Área o persona responsable de atender consultas y reclamos:</strong>{' '}

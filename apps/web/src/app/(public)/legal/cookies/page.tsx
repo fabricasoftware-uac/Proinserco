@@ -1,8 +1,11 @@
 import type { Metadata } from 'next'
+import { CONTENIDO_SITIO } from '@/modules/contenido'
 import { CookiesPreferencias } from '@/shared/ui/legal/cookies-preferencias'
 import { PlantillaLegal, PorDefinir, type SeccionLegal, TablaLegal } from '@/shared/ui/legal/plantilla-legal'
 
 export const metadata: Metadata = { title: 'Política de cookies' }
+
+const { contacto } = CONTENIDO_SITIO
 
 const secciones: readonly SeccionLegal[] = [
   {
@@ -46,14 +49,14 @@ const secciones: readonly SeccionLegal[] = [
               'Propia',
               'Mantener la sesión del equipo de la fundación en el panel. No se crea si solo donas o navegas',
               'Necesaria',
-              <PorDefinir key="d1">duración de la sesión, la define el backend</PorDefinir>,
+              'Hasta 8 horas (o 30 minutos de inactividad)',
             ],
             [
               'proinserco_mfa (en HTTPS: __Host-proinserco_mfa)',
               'Propia',
               'Completar el segundo factor al iniciar sesión el equipo',
               'Necesaria',
-              <PorDefinir key="d2">duración del desafío, la define el backend</PorDefinir>,
+              '5 minutos',
             ],
             [
               'Cloudflare Turnstile',
@@ -91,7 +94,7 @@ const secciones: readonly SeccionLegal[] = [
     titulo: 'Contacto',
     contenido: (
       <p>
-        Para dudas sobre esta política: <PorDefinir>correo oficial de la fundación</PorDefinir>.
+        Para dudas sobre esta política: {contacto.correo} · {contacto.telefono}.
       </p>
     ),
   },

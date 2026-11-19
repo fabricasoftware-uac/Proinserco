@@ -10,23 +10,25 @@ export const CONTENIDO_SITIO = {
   organizacion: {
     nombre: 'Fundación Proinserco',
     nombreCorto: 'Proinserco',
+    razonSocial:
+      'FUNDACIÓN DE PROFESIONALES INTERDISCIPLINARIOS PARA INVESTIGACIÓN Y EJECUCIÓN DE PROYECTOS COMUNITARIOS MUNICIPALES Y REGIONALES',
     lema: 'Al servicio de la comunidad',
     aniosExperiencia: 22,
     descripcionCorta:
       'Fundación caucana no gubernamental, sin ánimo de lucro, de profesionales interdisciplinarios dedicada a la investigación, formulación y ejecución de proyectos comunitarios en el departamento del Cauca.',
-    nit: 'TODO-CONTENIDO',
+    nit: '817.004.531-1',
   },
 
   contacto: {
     telefono: '+57 300 651 8013',
     /** Al pulsar el número se abre WhatsApp (no la app de llamadas/correo de Windows). Saludo neutro, sin datos personales. */
     whatsapp: 'https://wa.me/573006518013?text=Hola%2C%20Fundaci%C3%B3n%20Proinserco',
-    direccion: 'Calle 55 CN # 9B-66',
-    barrio: 'Santa Lucía',
+    direccion: 'Reserva del Bosque Bl 4 Ca 19',
+    barrio: 'Bella Vista',
     ciudad: 'Popayán',
     departamento: 'Cauca',
     pais: 'Colombia',
-    correo: 'TODO-CONTENIDO',
+    correo: 'proiserco@gmail.com',
     redes: [],
   },
 

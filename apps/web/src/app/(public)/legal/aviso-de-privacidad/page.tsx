@@ -1,8 +1,11 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { PlantillaLegal, PorDefinir, type SeccionLegal } from '@/shared/ui/legal/plantilla-legal'
+import { CONTENIDO_SITIO } from '@/modules/contenido'
+import { PlantillaLegal, type SeccionLegal } from '@/shared/ui/legal/plantilla-legal'
 
 export const metadata: Metadata = { title: 'Aviso de privacidad' }
+
+const { organizacion, contacto } = CONTENIDO_SITIO
 
 const secciones: readonly SeccionLegal[] = [
   {
@@ -10,8 +13,9 @@ const secciones: readonly SeccionLegal[] = [
     titulo: 'Quién trata tus datos',
     contenido: (
       <p>
-        La Fundación Proinserco (<PorDefinir>razón social y NIT</PorDefinir>), con domicilio en Calle 55 CN # 9B-66, barrio Santa
-        Lucía, Popayán, Cauca, es responsable del tratamiento de los datos personales que nos entregas en este sitio.
+        La {organizacion.nombre} ({organizacion.razonSocial}, NIT {organizacion.nit}), con domicilio en {contacto.direccion},
+        barrio {contacto.barrio}, {contacto.ciudad}, {contacto.departamento}, es responsable del tratamiento de los datos
+        personales que nos entregas en este sitio.
       </p>
     ),
   },
@@ -32,8 +36,8 @@ const secciones: readonly SeccionLegal[] = [
     titulo: 'Tus derechos y cómo ejercerlos',
     contenido: (
       <p>
-        Puedes conocer, actualizar, rectificar y suprimir tus datos, y revocar tu autorización, escribiendo a{' '}
-        <PorDefinir>correo oficial de la fundación</PorDefinir> o llamando al +57 300 651 8013.
+        Puedes conocer, actualizar, rectificar y suprimir tus datos, y revocar tu autorización, escribiendo a {contacto.correo} o
+        llamando al {contacto.telefono}.
       </p>
     ),
   },

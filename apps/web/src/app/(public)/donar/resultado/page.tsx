@@ -169,7 +169,11 @@ export default async function PaginaResultadoDonacion({
             >
               {contacto.telefono}
             </a>{' '}
-            o escríbenos a [POR DEFINIR: correo oficial de la fundación].
+            o escríbenos a{' '}
+            <a href={`mailto:${contacto.correo}`} className="font-semibold underline underline-offset-2">
+              {contacto.correo}
+            </a>
+            .
           </p>
         </section>
       </div>
