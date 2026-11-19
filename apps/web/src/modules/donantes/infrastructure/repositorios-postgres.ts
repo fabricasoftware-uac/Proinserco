@@ -44,43 +44,28 @@ function aConsentimiento(fila: FilaConsentimiento): Consentimiento {
  */
 export function crearRepositorioDonantesPostgres(): RepositorioDonantes {
   return {
-    async guardar(donante) {
+    async registrarSiNoExiste(donante) {
       if (!esUuidValido(donante.id)) {
         throw new Error('Identificador de donante inválido: se requiere un UUID')
       }
 
-      await conTransaccionDb(
+      // `proinserco_publico` no tiene privilegios sobre `public.donantes`: solo puede
+      // ejecutar la función acotada (migración 20261118200000), que no sobrescribe
+      // los datos de contacto de un documento ya registrado.
+      const fila = await conTransaccionDb(
         async (tx) => {
-          await tx
-            .insert(donantes)
-            .values({
-              id: donante.id,
-              nombres: donante.nombres,
-              apellidos: donante.apellidos,
-              tipoDocumento: donante.tipoDocumento,
-              numeroDocumento: donante.numeroDocumento,
-              correo: donante.correo,
-              celular: donante.celular,
-              quiereCertificado: donante.quiereCertificado,
-              creadoEn: donante.creadoEn,
-              actualizadoEn: donante.actualizadoEn,
-            })
-            .onConflictDoUpdate({
-              target: donantes.id,
-              set: {
-                nombres: donante.nombres,
-                apellidos: donante.apellidos,
-                tipoDocumento: donante.tipoDocumento,
-                numeroDocumento: donante.numeroDocumento,
-                correo: donante.correo,
-                celular: donante.celular,
-                quiereCertificado: donante.quiereCertificado,
-                actualizadoEn: donante.actualizadoEn,
-              },
-            })
+          const filas = await tx.execute<{ donante_id: string; existia: boolean }>(sql`
+            SELECT donante_id, existia FROM public.registrar_donante_publico(
+              ${donante.id}::uuid, ${donante.nombres}, ${donante.apellidos}, ${donante.tipoDocumento},
+              ${donante.numeroDocumento}, ${donante.correo}, ${donante.celular}, ${donante.quiereCertificado},
+              ${donante.creadoEn.toISOString()}::timestamptz
+            )`)
+          return filas[0]
         },
         { modo: 'publico' },
       )
+      if (!fila) throw new Error('registrar_donante_publico no devolvió el donante')
+      return { id: fila.donante_id as DonanteId, existia: Boolean(fila.existia) }
     },
 
     async buscarPorId(id) {
@@ -90,20 +75,6 @@ export function crearRepositorioDonantesPostgres(): RepositorioDonantes {
         const [fila] = await tx.select().from(donantes).where(eq(donantes.id, id)).limit(1)
         return fila ? aDonante(fila) : null
       })
-    },
-
-    async buscarPorDocumento(tipo, numero) {
-      return conTransaccionDb(
-        async (tx) => {
-          const [fila] = await tx
-            .select()
-            .from(donantes)
-            .where(and(eq(donantes.tipoDocumento, tipo), eq(donantes.numeroDocumento, numero)))
-            .limit(1)
-          return fila ? aDonante(fila) : null
-        },
-        { modo: 'publico' },
-      )
     },
 
     async listar(filtros, paginacion) {

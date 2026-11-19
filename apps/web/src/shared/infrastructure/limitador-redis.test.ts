@@ -28,7 +28,7 @@ vi.mock('ioredis', async () => {
 })
 
 // Reimporta después del mock para usar RedisMock y configurable por test.
-import { crearLimitadorRedis } from './limitador-redis'
+import { crearLimitadorRedis, timeoutsRedis } from './limitador-redis'
 
 describe('crearLimitadorRedis', () => {
   beforeEach(() => {
@@ -41,17 +41,31 @@ describe('crearLimitadorRedis', () => {
     vi.clearAllMocks()
   })
 
-  it('configura ioredis con timeouts de 200 ms, sin cola offline y 1 reintento', () => {
-    crearLimitadorRedis('rediss://redis.proinserco.internal:6379')
+  it('redis:// (red privada) usa timeouts de 200 ms, sin cola offline y 1 reintento', () => {
+    crearLimitadorRedis('redis://redis.proinserco.internal:6379')
 
     expect(construcciones).toHaveLength(1)
-    expect(construcciones[0]?.url).toBe('rediss://redis.proinserco.internal:6379')
+    expect(construcciones[0]?.url).toBe('redis://redis.proinserco.internal:6379')
     expect(construcciones[0]?.opciones).toEqual({
       connectTimeout: 200,
       commandTimeout: 200,
       enableOfflineQueue: false,
       maxRetriesPerRequest: 1,
     })
+  })
+
+  it('rediss:// (TLS gestionado, p. ej. Upstash) pasa la URL tal cual a ioredis y amplía los timeouts', () => {
+    crearLimitadorRedis('rediss://default:secreto@eu1-ejemplo.upstash.io:6379')
+
+    expect(construcciones[0]?.url).toBe('rediss://default:secreto@eu1-ejemplo.upstash.io:6379')
+    expect(construcciones[0]?.opciones).toEqual({
+      connectTimeout: 3000,
+      commandTimeout: 1000,
+      enableOfflineQueue: false,
+      maxRetriesPerRequest: 1,
+    })
+    expect(timeoutsRedis('REDISS://x:6379').tls).toBe(true)
+    expect(timeoutsRedis('redis://x:6379')).toEqual({ conexionMs: 200, comandoMs: 200, tls: false })
   })
 
   it('ejecuta script Lua atómico, hashea :id:<valor> con SHA-256 y calcula restantes/reintento', async () => {
@@ -119,6 +133,13 @@ describe('crearLimitadorRedis', () => {
 
     expect(res).toEqual({ permitido: true, restantes: 60, reintentarEnSegundos: 0 })
     expect(alFallar).toHaveBeenCalledWith(error, 'webhook-openpay:ip:198.51.100.4')
+
+    // La página de resultado también: la consulta a la pasarela ya está limitada por donación en BD.
+    cliente?.eval.mockRejectedValueOnce(error)
+    expect((await limitador.consumir('resultado-donacion:ip:198.51.100.4', 60, 300)).permitido).toBe(true)
+    // Login sigue fallando cerrado.
+    cliente?.eval.mockRejectedValueOnce(error)
+    expect((await limitador.consumir('iniciar-sesion:ip:198.51.100.4', 10, 900)).permitido).toBe(false)
   })
 
   it('espera la conexión inicial si está conectando y falla cerrado si agota 200 ms', async () => {

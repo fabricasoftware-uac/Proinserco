@@ -9,6 +9,19 @@ export class CredencialesInvalidas extends ErrorDeDominio {
   }
 }
 
+/**
+ * Contraseña correcta, pero la cuenta no tiene segundo factor activado. El TOTP solo se
+ * enrola en el alta administrativa: nunca desde el login (evita que quien robe una
+ * contraseña registre su propio TOTP).
+ */
+export class AccesoNoActivado extends ErrorDeDominio {
+  readonly code = 'ACCESO_NO_ACTIVADO'
+  override readonly esPublico = true
+  constructor() {
+    super('Pide al administrador que active tu acceso')
+  }
+}
+
 export class CodigoMfaInvalido extends ErrorDeDominio {
   readonly code = 'CODIGO_MFA_INVALIDO'
   override readonly esPublico = true

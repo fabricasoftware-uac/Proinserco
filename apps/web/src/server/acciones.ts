@@ -89,6 +89,8 @@ export function conLimiteDeTasa(opciones: {
   /** Segunda clave (por identidad). Recibe la entrada SIN validar: tratarla como no confiable. */
   identidad?: (entrada: unknown) => string | null
   limiteIdentidad?: number
+  /** La clave por identidad combina identidad + IP (un tercero no puede agotar el cupo de una cuenta). */
+  identidadConIp?: boolean
 }) {
   return createMiddleware<Base>().define(async ({ next, metadata, clientInput }) => {
     const { limitador } = (await obtenerContenedor()).transversal
@@ -97,7 +99,8 @@ export function conLimiteDeTasa(opciones: {
     if (!porIp.permitido) throw new DemasiadasPeticiones(porIp.reintentarEnSegundos)
     const identidad = opciones.identidad?.(clientInput)
     if (identidad) {
-      const clave = `${metadata.nombre}:id:${identidad.toLowerCase().slice(0, 254)}`
+      const valor = identidad.toLowerCase().slice(0, 254)
+      const clave = `${metadata.nombre}:id:${opciones.identidadConIp ? `${valor}|${ip}` : valor}`
       const porId = await limitador.consumir(clave, opciones.limiteIdentidad ?? opciones.limite, opciones.ventanaSegundos)
       if (!porId.permitido) throw new DemasiadasPeticiones(porId.reintentarEnSegundos)
     }

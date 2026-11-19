@@ -54,11 +54,11 @@ export function crearCrearDonacion(deps: Dependencias) {
     const entrada = DonacionEntrada.parse(solicitud.donacion)
     const importe = importeDeDonacion(entrada.montoPesos, deps.configuracion.limites)
 
-    const previa = await deps.donaciones.buscarPorClaveIdempotencia(entrada.claveIdempotencia)
+    const previa = await deps.donaciones.buscarIntentoPorClave(entrada.claveIdempotencia)
     if (previa) {
       // Doble clic o reintento: se devuelve el mismo cargo, nunca uno nuevo.
-      if (previa.estado === 'pendiente' && previa.datos.urlPago) {
-        return { referencia: previa.datos.referencia, urlPago: previa.datos.urlPago }
+      if (previa.estado === 'pendiente' && previa.urlPago) {
+        return { referencia: previa.referencia, urlPago: previa.urlPago }
       }
       throw new DonacionYaProcesada()
     }

@@ -1,3 +1,4 @@
+import 'server-only'
 import { z } from 'zod'
 import { CENTAVOS_POR_PESO, type Importe } from '@/shared/domain/importe'
 import type { CargoConsultado, EstadoCargo, PasarelaPagos } from '../application/ports/pasarela-pagos'
@@ -6,6 +7,9 @@ import { CargoRechazadoPorFraude } from '../domain/errores'
 const TIMEOUT_MS = 10_000
 const PATRON_ID_CARGO = /^[A-Za-z0-9_-]{1,120}$/
 const PATRON_ULTIMOS_4 = /^\d{4}$/
+const PATRON_REFERENCIA = /^DON-[0-9A-HJKMNP-TV-Z]{21}$/
+const TAMANO_PAGINA_LISTADO = 100
+const MAX_PAGINAS_LISTADO = 50
 const CODIGO_ANTIFRAUDE_OPENPAY = 3005
 
 const HOST_SANDBOX = 'sandbox-api.openpay.co'
@@ -57,6 +61,9 @@ const RespuestaConsultarCargo = z.object({
     .optional(),
 })
 
+/** El listado de cargos es un arreglo; cada elemento se valida por separado. */
+const RespuestaListaCargos = z.array(z.unknown()).max(1000)
+
 export type ConfiguracionOpenpay = Readonly<{
   merchantId: string
   /** Llave PRIVADA. Solo servidor. Nunca en logs, nunca con NEXT_PUBLIC_. */
@@ -89,13 +96,13 @@ export function aPesosOpenpay(importe: Importe): number {
 }
 
 /**
- * Reconstruye un `Importe` desde la respuesta de Openpay validando moneda COP
- * y rango positivo finito, para contrastarlo contra el monto local.
+ * Reconstruye un `Importe` desde la respuesta de Openpay validando rango positivo
+ * finito, para contrastarlo contra el monto local. Una moneda distinta de COP NO
+ * lanza (eso provocaría un 500 y reintentos en bucle del webhook): devuelve `null`
+ * y la conciliación la registra como discrepancia sin tocar el estado.
  */
-export function aImporteDesdeOpenpay(amount: number, currency: string): Importe {
-  if (currency !== 'COP') {
-    throw new Error(`Moneda de Openpay no admitida: ${currency}`)
-  }
+export function aImporteDesdeOpenpay(amount: number, currency: string): Importe | null {
+  if (currency.trim().toUpperCase() !== 'COP') return null
   if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0) {
     throw new RangeError('Monto devuelto por Openpay inválido')
   }
@@ -184,6 +191,26 @@ function extraerMetodoPagoSeguro(datos: z.infer<typeof RespuestaConsultarCargo>)
   return etiqueta ? etiqueta.slice(0, 60) : null
 }
 
+/** Traduce un cargo de Openpay al puerto. `null` si el estado es desconocido (nunca se mapea a aprobado). */
+function aCargoConsultado(datos: z.infer<typeof RespuestaConsultarCargo>): CargoConsultado | null {
+  const estadoOpenpay = datos.status.trim().toLowerCase()
+  const estado = Object.hasOwn(ESTADOS_OPENPAY, estadoOpenpay) ? ESTADOS_OPENPAY[estadoOpenpay] : undefined
+  if (!estado) return null
+  return {
+    idCargo: datos.id,
+    referencia: datos.order_id ?? '',
+    estado,
+    importe: aImporteDesdeOpenpay(datos.amount, datos.currency),
+    monedaReportada: datos.currency.trim().toUpperCase().slice(0, 10),
+    metodoPago: extraerMetodoPagoSeguro(datos),
+  }
+}
+
+/** Openpay filtra el listado por fecha de creación con `yyyy-mm-dd` (UTC). */
+function fechaOpenpay(fecha: Date): string {
+  return fecha.toISOString().slice(0, 10)
+}
+
 /**
  * Adaptador real de Openpay Colombia (checkout hospedado por redirección).
  * No usa SDK externo: habla por `fetch` con Basic Auth sobre HTTPS y valida
@@ -197,6 +224,20 @@ export function crearPasarelaOpenpay(configuracion: ConfiguracionOpenpay): Pasar
     if (!configuracion.merchantId || !configuracion.llavePrivada || !urlBaseApi) {
       throw new Error('Configuración de Openpay incompleta')
     }
+  }
+
+  async function getOpenpay(url: string, operacion: string): Promise<unknown> {
+    const respuesta = await ejecutarFetchOpenpay(
+      url,
+      { method: 'GET', headers: { Authorization: autorizacion, Accept: 'application/json' } },
+      operacion,
+    )
+    if (!respuesta.ok) {
+      const errorCode = await leerCodigoErrorOpenpay(respuesta)
+      const sufijo = errorCode !== undefined ? ` error_code=${errorCode}` : ''
+      throw new Error(`Openpay ${operacion} falló con HTTP ${respuesta.status}${sufijo}`)
+    }
+    return leerJsonOpenpay(respuesta, operacion)
   }
 
   return {
@@ -260,48 +301,73 @@ export function crearPasarelaOpenpay(configuracion: ConfiguracionOpenpay): Pasar
       }
 
       const url = `${urlBaseApi}/v1/${encodeURIComponent(configuracion.merchantId)}/charges/${encodeURIComponent(idCargo)}`
-      const respuesta = await ejecutarFetchOpenpay(
-        url,
-        {
-          method: 'GET',
-          headers: {
-            Authorization: autorizacion,
-            Accept: 'application/json',
-          },
-        },
-        'consultarCargo',
-      )
-
-      if (!respuesta.ok) {
-        const errorCode = await leerCodigoErrorOpenpay(respuesta)
-        const sufijo = errorCode !== undefined ? ` error_code=${errorCode}` : ''
-        throw new Error(`Openpay consultarCargo falló con HTTP ${respuesta.status}${sufijo}`)
-      }
-
-      const json = await leerJsonOpenpay(respuesta, 'consultarCargo')
+      const json = await getOpenpay(url, 'consultarCargo')
       const parseado = RespuestaConsultarCargo.safeParse(json)
       if (!parseado.success) {
         throw new Error('Openpay consultarCargo devolvió una respuesta inesperada')
       }
 
-      const datos = parseado.data
-      const estadoOpenpay = datos.status.trim().toLowerCase()
-      const estado = Object.hasOwn(ESTADOS_OPENPAY, estadoOpenpay) ? ESTADOS_OPENPAY[estadoOpenpay] : undefined
-      if (!estado) {
-        configuracion.alAdvertir?.('Openpay devolvió un estado de cargo desconocido', {
-          idCargo,
-          estado: estadoOpenpay,
-        })
+      const cargo = aCargoConsultado(parseado.data)
+      if (!cargo) {
+        const estadoOpenpay = parseado.data.status.trim().toLowerCase()
+        configuracion.alAdvertir?.('Openpay devolvió un estado de cargo desconocido', { idCargo, estado: estadoOpenpay })
         throw new Error(`Openpay consultarCargo devolvió estado desconocido: ${estadoOpenpay}`)
       }
+      return cargo
+    },
 
-      return {
-        idCargo: datos.id,
-        referencia: datos.order_id ?? '',
-        estado,
-        importe: aImporteDesdeOpenpay(datos.amount, datos.currency),
-        metodoPago: extraerMetodoPagoSeguro(datos),
+    async buscarCargoPorReferencia(referencia) {
+      exigirConfiguracion()
+      if (!PATRON_REFERENCIA.test(referencia)) {
+        throw new Error('Referencia de donación inválida para buscar en Openpay')
       }
+      const consulta = new URLSearchParams({ order_id: referencia, offset: '0', limit: '10' })
+      const url = `${urlBaseApi}/v1/${encodeURIComponent(configuracion.merchantId)}/charges?${consulta.toString()}`
+      const json = await getOpenpay(url, 'buscarCargoPorReferencia')
+      const lista = RespuestaListaCargos.safeParse(json)
+      if (!lista.success) {
+        throw new Error('Openpay buscarCargoPorReferencia devolvió una respuesta inesperada')
+      }
+      // Filtro defensivo: si la API ignorara `order_id`, nunca se atribuye un cargo ajeno.
+      const candidatos = lista.data
+        .map((crudo) => RespuestaConsultarCargo.safeParse(crudo))
+        .flatMap((r) => (r.success && r.data.order_id === referencia ? [r.data] : []))
+      if (candidatos.length > 1) {
+        configuracion.alAdvertir?.('Openpay devolvió varios cargos con la misma referencia', {
+          referencia,
+          cantidad: candidatos.length,
+        })
+      }
+      const primero = candidatos[0]
+      return primero ? aCargoConsultado(primero) : null
+    },
+
+    async listarCargos({ desde, hasta }) {
+      exigirConfiguracion()
+      const cargos: CargoConsultado[] = []
+      for (let pagina = 0; pagina < MAX_PAGINAS_LISTADO; pagina += 1) {
+        const consulta = new URLSearchParams({
+          'creation[gte]': fechaOpenpay(desde),
+          'creation[lte]': fechaOpenpay(hasta),
+          offset: String(pagina * TAMANO_PAGINA_LISTADO),
+          limit: String(TAMANO_PAGINA_LISTADO),
+        })
+        const url = `${urlBaseApi}/v1/${encodeURIComponent(configuracion.merchantId)}/charges?${consulta.toString()}`
+        const json = await getOpenpay(url, 'listarCargos')
+        const lista = RespuestaListaCargos.safeParse(json)
+        if (!lista.success) {
+          throw new Error('Openpay listarCargos devolvió una respuesta inesperada')
+        }
+        for (const crudo of lista.data) {
+          const parseo = RespuestaConsultarCargo.safeParse(crudo)
+          const cargo = parseo.success ? aCargoConsultado(parseo.data) : null
+          if (cargo) cargos.push(cargo)
+          else configuracion.alAdvertir?.('Cargo de Openpay omitido en el listado (forma o estado desconocido)', {})
+        }
+        if (lista.data.length < TAMANO_PAGINA_LISTADO) return cargos
+      }
+      configuracion.alAdvertir?.('Listado de cargos de Openpay truncado', { maximo: MAX_PAGINAS_LISTADO * TAMANO_PAGINA_LISTADO })
+      return cargos
     },
   }
 }

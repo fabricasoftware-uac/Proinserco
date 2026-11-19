@@ -60,7 +60,7 @@ describe.runIf(Boolean(testDatabaseUrl))('RepositorioDonaciones en PostgreSQL â€
         const sufijo = randomUUID().replaceAll('-', '').slice(0, 12)
         const donanteId = randomUUID() as DonanteId
         const ahora = new Date('2026-11-16T15:00:00.000Z')
-        await repoDonantes.guardar({
+        await repoDonantes.registrarSiNoExiste({
           id: donanteId,
           nombres: 'Donante Contrato',
           apellidos: 'Proinserco Test',

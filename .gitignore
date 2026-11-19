@@ -22,12 +22,14 @@ coverage/
 playwright-report/
 test-results/
 blob-report/
+resultado-vitest.json
 playwright/.cache/
 
 # ─── Volcados y copias (nunca código ni datos reales) ──────────
 *.sql
 !supabase/migrations/*.sql
 !supabase/seed.sql
+!supabase/tests/*.sql
 *.dump
 *.bak
 dump*

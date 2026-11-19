@@ -124,7 +124,7 @@ export function probarContratoRepositorioDonaciones(
       )
     })
 
-    it('buscarPorId, buscarPorReferencia, buscarPorIdCargo y buscarPorClaveIdempotencia manejan aciertos, ausencias y no-UUID', async () => {
+    it('buscarPorId, buscarPorReferencia, buscarPorIdCargo y buscarIntentoPorClave manejan aciertos, ausencias y no-UUID', async () => {
       const { repositorio, asegurarDonante } = await crearContexto()
       const donanteId = await asegurarDonante()
       const t0 = new Date('2026-11-16T15:00:00.000Z')
@@ -139,9 +139,14 @@ export function probarContratoRepositorioDonaciones(
       const porId = await repositorio.buscarPorId(creada.id)
       const porRef = await repositorio.buscarPorReferencia(creada.datos.referencia)
       const porCargo = await repositorio.buscarPorIdCargo(idCargo)
-      const porClave = await repositorio.buscarPorClaveIdempotencia(creada.datos.claveIdempotencia)
+      const porClave = await repositorio.buscarIntentoPorClave(creada.datos.claveIdempotencia)
+      expect(porClave).toEqual({
+        referencia: creada.datos.referencia,
+        estado: 'pendiente',
+        urlPago: 'https://sandbox.openpay.co/pay/456',
+      })
 
-      for (const encontrada of [porId, porRef, porCargo, porClave]) {
+      for (const encontrada of [porId, porRef, porCargo]) {
         expect(encontrada?.id).toBe(creada.id)
         expect(encontrada?.estado).toBe('pendiente')
         expect(encontrada?.datos.importe).toEqual({ centavos: 7_500_000n, moneda: 'COP' })
@@ -153,8 +158,37 @@ export function probarContratoRepositorioDonaciones(
       expect(await repositorio.buscarPorId('no-es-uuid')).toBeNull()
       expect(await repositorio.buscarPorReferencia(generarReferencia())).toBeNull()
       expect(await repositorio.buscarPorIdCargo(`chg_inexistente_${randomUUID()}`)).toBeNull()
-      expect(await repositorio.buscarPorClaveIdempotencia(randomUUID())).toBeNull()
-      expect(await repositorio.buscarPorClaveIdempotencia('clave-no-uuid')).toBeNull()
+      expect(await repositorio.buscarIntentoPorClave(randomUUID())).toBeNull()
+      expect(await repositorio.buscarIntentoPorClave('clave-no-uuid')).toBeNull()
+    })
+
+    it('lecturas públicas: resumen sin datos personales por referencia y reserva atómica de consulta a la pasarela', async () => {
+      const { repositorio, asegurarDonante } = await crearContexto()
+      const donanteId = await asegurarDonante()
+      const t0 = new Date('2026-11-16T15:00:00.000Z')
+      const creada = crearDonacionBase({ donanteId, creadaEn: t0, montoPesos: 42_000 })
+      await repositorio.insertar(creada)
+
+      const resumen = await repositorio.buscarResumenPublico(creada.datos.referencia)
+      expect(resumen).toEqual({
+        referencia: creada.datos.referencia,
+        estado: 'creada',
+        importe: { centavos: 4_200_000n, moneda: 'COP' },
+        creadaEn: t0,
+        quiereCertificado: creada.datos.quiereCertificado,
+      })
+      expect(JSON.stringify(resumen, (_k, v) => (typeof v === 'bigint' ? v.toString() : v))).not.toContain('@')
+      expect(await repositorio.buscarResumenPublico(generarReferencia())).toBeNull()
+      expect(await repositorio.buscarResumenPublico('no-es-referencia')).toBeNull()
+
+      // Primera reserva gana; las siguientes dentro del intervalo no (aunque sean simultáneas).
+      const reservas = await Promise.all([
+        repositorio.reservarConsultaPasarela(creada.datos.referencia, 60),
+        repositorio.reservarConsultaPasarela(creada.datos.referencia, 60),
+      ])
+      expect(reservas.filter(Boolean)).toHaveLength(1)
+      expect(await repositorio.reservarConsultaPasarela(creada.datos.referencia, 60)).toBe(false)
+      expect(await repositorio.reservarConsultaPasarela(generarReferencia(), 60)).toBe(false)
     })
 
     it('listar filtra, ordena por fecha/monto/estado en asc/desc, pagina por cursor sin duplicados y rechaza cursores inválidos', async () => {

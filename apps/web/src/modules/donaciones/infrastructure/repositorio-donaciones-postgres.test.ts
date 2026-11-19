@@ -105,9 +105,92 @@ describe('crearRepositorioDonacionesPostgres', () => {
     await repo.insertar(donacion)
 
     expect(consultas[0]?.sql).toBe('SET LOCAL ROLE proinserco_publico')
-    expect(consultas[1]?.sql).toContain('insert into "donaciones"')
-    expect(consultas[1]?.params).toContain(5_000_000n)
+    // Sin INSERT directo: solo la función acotada (migración 20261118200000).
+    expect(consultas[1]?.sql).toContain('public.crear_donacion_publica(')
+    expect(consultas[1]?.sql).not.toContain('insert into')
+    expect(consultas[1]?.params).toContain('5000000')
     expect(donacion.estado).toBe('creada')
+
+    // Nunca inserta una donación que no esté en `creada` sin cargo.
+    await expect(repo.insertar(donacion.registrarCargo('chg_1', 'https://sandbox.openpay.co/p', FECHA_2))).rejects.toThrow(
+      'creada',
+    )
+  })
+
+  it('en el flujo público actualizarSiEstado solo registra el cargo (creada → pendiente) por la función acotada', async () => {
+    const creada = Donacion.crear(
+      {
+        id: UUID_1 as DonacionId,
+        referencia: REF_1,
+        claveIdempotencia: CLAVE_UUID,
+        importe: importeDesdePesos(50_000),
+        linea: 'educacion',
+        donanteId: DONANTE_UUID,
+        pagador: { nombres: 'Ana', apellidos: 'Muñoz', correo: 'ana@demo.test' },
+        quiereCertificado: true,
+      },
+      FECHA_1,
+    )
+    const pendiente = creada.registrarCargo('chg_123', 'https://sandbox.openpay.co/pay/123', FECHA_2)
+    const { db, consultas } = crearDbInstrumentada((sql) =>
+      sql.includes('registrar_cargo_donacion_publica') ? [{ registrado: true }] : [],
+    )
+    obtenerDbMock.mockReturnValue(db)
+    const repo = crearRepositorioDonacionesPostgres()
+
+    expect(await ejecutarConContextoDb({ modo: 'publico' }, () => repo.actualizarSiEstado(pendiente, 'creada'))).toBe(true)
+    expect(consultas[0]?.sql).toBe('SET LOCAL ROLE proinserco_publico')
+    expect(consultas[1]?.sql).toContain('public.registrar_cargo_donacion_publica(')
+    expect(consultas.some((c) => c.sql.includes('update "donaciones"'))).toBe(false)
+
+    const aprobada = pendiente.transicionar('aprobada', FECHA_2, 'webhook')
+    await expect(
+      ejecutarConContextoDb({ modo: 'publico' }, () => repo.actualizarSiEstado(aprobada, 'pendiente')),
+    ).rejects.toThrow('no permitida')
+  })
+
+  it('lecturas públicas: intento por clave y resumen por referencia por funciones acotadas; reserva de consulta', async () => {
+    const { db, consultas } = crearDbInstrumentada((sql) => {
+      if (sql.includes('intento_donacion_por_clave'))
+        return [{ referencia: REF_1, estado: 'pendiente', url_pago: 'https://x.test/p' }]
+      if (sql.includes('resultado_donacion_publica'))
+        return [
+          {
+            referencia: REF_1,
+            estado: 'aprobada',
+            importe_centavos: '5000000',
+            moneda: 'COP',
+            creada_en: FECHA_1.toISOString(),
+            quiere_certificado: true,
+          },
+        ]
+      if (sql.includes('reservar_consulta_pasarela_publica')) return [{ reservada: true }]
+      return []
+    })
+    obtenerDbMock.mockReturnValue(db)
+    const repo = crearRepositorioDonacionesPostgres()
+
+    expect(await repo.buscarIntentoPorClave('invalido')).toBeNull()
+    expect(await repo.buscarResumenPublico('<script>')).toBeNull()
+    expect(await repo.reservarConsultaPasarela('DON-x', 30)).toBe(false)
+    expect(consultas).toHaveLength(0)
+
+    expect(await repo.buscarIntentoPorClave(CLAVE_UUID)).toEqual({
+      referencia: REF_1,
+      estado: 'pendiente',
+      urlPago: 'https://x.test/p',
+    })
+    expect(await repo.buscarResumenPublico(REF_1)).toEqual({
+      referencia: REF_1,
+      estado: 'aprobada',
+      importe: { centavos: 5_000_000n, moneda: 'COP' },
+      creadaEn: FECHA_1,
+      quiereCertificado: true,
+    })
+    expect(await repo.reservarConsultaPasarela(REF_1, 30)).toBe(true)
+    const roles = consultas.filter((c) => c.sql.startsWith('SET LOCAL ROLE')).map((c) => c.sql)
+    expect(new Set(roles)).toEqual(new Set(['SET LOCAL ROLE proinserco_publico']))
+    expect(consultas.some((c) => /from "donaciones"/.test(c.sql))).toBe(false)
   })
 
   it('actualizarSiEstado inserta transición solo si la fila coincidió con estadoEsperado', async () => {
@@ -142,7 +225,7 @@ describe('crearRepositorioDonacionesPostgres', () => {
     expect(consultasPerdida.some((c) => c.sql.includes('insert into "donaciones_transiciones"'))).toBe(false)
   })
 
-  it('buscarPorId y buscarPorClaveIdempotencia rechazan no-UUID sin consultar y reconstruyen historial', async () => {
+  it('buscarPorId rechaza no-UUID sin consultar y reconstruyen historial', async () => {
     const fila = filaDonacionCruda(UUID_1, REF_1, 'pendiente', '5000000', FECHA_1)
     const transicion = [UUID_2, UUID_1, 'creada', 'pendiente', FECHA_2.toISOString(), 'servidor']
 
@@ -155,7 +238,6 @@ describe('crearRepositorioDonacionesPostgres', () => {
 
     const repo = crearRepositorioDonacionesPostgres()
     expect(await repo.buscarPorId('invalido')).toBeNull()
-    expect(await repo.buscarPorClaveIdempotencia('invalido')).toBeNull()
     expect(consultas).toHaveLength(0)
 
     const encontrada = await repo.buscarPorReferencia(REF_1)

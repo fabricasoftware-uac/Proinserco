@@ -2,7 +2,7 @@
 tipo: handoff
 estado: entregado
 creado: 2026-11-16
-actualizado: 2026-11-16
+actualizado: 2026-11-18
 proyecto: ProInserco
 modulo: todos (donaciones, donantes, iam, auditoria, transversales)
 frontend: Michael (FabSoft, con agentes)
@@ -18,6 +18,42 @@ Documento principal para Salomón. El frontend está **completo y funciona enter
 
 > [!warning] **Qué NO está en el repositorio (no lo des por hecho)**
 > Dockerfile y `.dockerignore`, CI (GitHub Actions), CODEOWNERS, Dependabot, husky/lint-staged/commitlint, escaneo de secretos, batería E2E de Playwright (existe `apps/web/playwright.config.ts`, pero no el directorio `apps/web/e2e`), **tests de contrato compartidos** entre memoria y real, job de conciliación, migraciones, cliente de base de datos y esquema Drizzle, y envío de correos. Todo eso está en [[Pendientes]].
+
+> [!important] **Estado al 2026-11-18 (revisión y cierre del backend)**
+> El backend real ya existe (commit `648d9b4`) y la revisión del 2026-11-18 quedó corregida. Lo que cambia respecto al resto de este documento (escrito antes del backend) está en la **sección 0**. Los pasos concretos para el servidor están en [[Pasos para Salomón en el servidor]].
+
+---
+
+## 0. Cambios de la revisión del 2026-11-18 (leer primero)
+
+| Tema | Qué hay ahora | Dónde |
+|---|---|---|
+| RLS del flujo público | `proinserco_publico` **ya no tiene privilegios de tabla** sobre `donantes`, `donaciones` ni `donaciones_transiciones` (antes: `SELECT … USING (true)` y `UPDATE` de cualquier donante). Solo ejecuta 6 funciones `SECURITY DEFINER` acotadas (`search_path` vacío, `EXECUTE` revocado a `PUBLIC`/`anon`/`authenticated`, dueño `proinserco_flujo_publico` **sin** `BYPASSRLS` y con sus propias políticas y privilegios por columna): `registrar_donante_publico`, `crear_donacion_publica`, `registrar_cargo_donacion_publica`, `intento_donacion_por_clave`, `resultado_donacion_publica`, `reservar_consulta_pasarela_publica` | `supabase/migrations/20261118200000_flujo_publico_funciones_acotadas.sql` |
+| Donante que repite documento | **Decisión:** si el documento ya existe, el flujo público **no toca** nombres, correo ni celular; solo puede activar `quiereCertificado` (nunca desactivarlo) y asocia la donación al donante existente. La instantánea del pagador de la donación y el consentimiento guardan lo que escribió quien dona. Los cambios de datos se harán **solo desde el panel** (hoy no hay pantalla de edición: pendiente de contrato). Puerto: `RepositorioDonantes.registrarSiNoExiste` (sustituye a `guardar` + `buscarPorDocumento`) | `modules/donantes/application/ports/repositorio-donantes.ts` |
+| Puerto de donaciones | Nuevas operaciones **públicas**: `buscarIntentoPorClave` (sustituye a `buscarPorClaveIdempotencia`), `buscarResumenPublico` y `reservarConsultaPasarela`. `insertar` y `actualizarSiEstado` (`creada` → `pendiente`) usan las funciones en el modo público | `modules/donaciones/application/ports/repositorio-donaciones.ts` |
+| Página `/donar/resultado` | Lee con el rol **público** (no `sistema`), límite de **60 consultas / 5 min por IP** y consulta a Openpay **como mucho una vez cada 30 s por donación** (reserva atómica en `donaciones_consultas_pasarela`, válida con varias instancias). Solo la conciliación posterior corre como `sistema` | `consultar-resultado-donacion.ts`, `container.ts` |
+| Webhook | Si no encuentra la donación por `idCargo`, la busca por `transaction.order_id` (solo si tiene formato `DON-…`) y **recupera** el cargo: lo consulta a Openpay y exige que su `order_id` coincida. Cubre el caso "`crearCargo` funcionó pero falló el UPDATE a `pendiente`" | `webhooks/openpay/[secreto]/route.ts`, `conciliar-donacion.ts` |
+| Moneda distinta de COP | Ya no lanza (antes: 500 y reintentos en bucle). `CargoConsultado.importe` es `null` y la conciliación lo registra como **discrepancia** auditada (`motivo: 'moneda'`), sin cambiar el estado; el webhook responde 200 | `pasarela-openpay.ts`, `pasarela-pagos.ts` |
+| Conciliación diaria | (1) antes de expirar una `creada` sin cargo pregunta a Openpay por `order_id` y, si existe, aplica su estado real; si Openpay no responde **no** expira; (2) **cruce** con el listado de cargos de Openpay de las últimas 48 h: un cargo aprobado allí que aquí no figura como aprobado se intenta conciliar y, si no se puede, queda como `donacion.discrepancia` (`aprobado_sin_donacion` / `aprobado_no_reflejado`); (3) alerta = evento de auditoría `conciliacion.alerta` con `severidad` + puerto `Notificador` (log siempre y webhook si `ALERTAS_WEBHOOK_URL`) | `conciliar-pendientes.ts`, `shared/application/ports/notificador.ts`, migración `20261118200100_auditoria_alertas_conciliacion.sql` |
+| MFA | El login **ya no enrola TOTP**. Una cuenta sin factor verificado ve «Pide al administrador que active tu acceso» (`AccesoNoActivado`, auditado como `sesion.fallida` con `motivo: 'mfa_no_activado'`). El TOTP se enrola en `scripts/alta-usuario-panel.mjs`: crea el usuario, muestra **una vez** el secreto y el URI `otpauth://` y verifica un primer código. `--actualizar-existente --restablecer-mfa` para teléfono perdido. **Se eliminó el modo `invitacion`** | `identity-provider-supabase.ts`, `scripts/alta-usuario-panel.mjs` |
+| Bloqueo progresivo | **Decisión:** bloqueo DURO por `hash(correo + IP)` (3 → 1 min, 4 → 5 min, 5+ → 15 min) y solo **retardo** por `hash(correo)` desde cualquier IP (1 s, 2 s, 4 s a partir del tercer fallo en 15 min). El límite de la acción de login por identidad también es por correo + IP. Así 5 intentos de un tercero no dejan fuera a un administrador; el TOTP obligatorio cubre la fuerza bruta distribuida | `identity-provider-supabase.ts`, `modules/iam/ui/acciones.ts` |
+| Modo memoria | Vuelven la **pasarela simulada** (`/donar/pasarela-simulada`) y los **usuarios demo** (`modules/iam/infrastructure/usuarios-demo.ts`), solo con `ADAPTADORES=memoria` **y** `NODE_ENV` distinto de `production`. Sus fábricas lanzan con `NODE_ENV=production` (doble cerrojo). Una demo pública con `ADAPTADORES_MEMORIA_EN_PRODUCCION=si` arranca sin pagos ni accesos | `container.ts`, `shared/infrastructure/solo-desarrollo.ts` |
+| VPS o Vercel | `DESPLIEGUE=vercel` (o `VERCEL` definido) en producción **sin** `LIMITADOR_URL` ⇒ la app **no arranca** (validación en `src/instrumentation.ts`). `LIMITADOR_URL` admite `redis://` y `rediss://` (TLS, Upstash; timeouts 3 s conexión / 1 s comando). Cron: Coolify (POST) o Vercel Cron (GET, `apps/web/vercel.json`, `CRON_SECRET` = `CRON_CONCILIACION_SECRETO`) | `env-esquema.ts`, `instrumentation.ts`, `api/cron/conciliacion/route.ts` |
+| Verificación «soy una persona» | Turnstile real de extremo a extremo: script oficial `api.js?render=explicit` con el **nonce** de la CSP, `action: 'donar'`, tema claro/oscuro de la página, reinicio tras error, caducidad o timeout, botón «Continuar al pago seguro» deshabilitado sin token y cierre limpio al desmontar. Servidor: siteverify con `TURNSTILE_SECRET_KEY`, exige `success`, `hostname` = `APP_URL` y `action`, token de **un solo uso** (registro en el limitador, hasheado) y falla cerrado. En producción la casilla de demostración (`ANTIBOTS=memoria`) no arranca salvo `ANTIBOTS_MEMORIA_EN_PRODUCCION=si` y las claves de prueba de Cloudflare (`1x0000…`, `2x0000…`, `3x0000…`) se rechazan. CSP: `challenges.cloudflare.com` solo en `script-src` y `frame-src` | `flujos/donar/verificacion-antibots.tsx`, `shared/infrastructure/verificador-turnstile.ts`, `server/env-esquema.ts`, `shared/domain/antibots.ts` |
+| Build y CI | `.dockerignore` excluye `**/.env*`; el build de producción **falla** sin la clave real de Turnstile (`scripts/verificar-clave-turnstile.mjs`); actions fijadas por SHA; job `integracion` con Postgres 17 + Redis 7 que corre la suite RLS y los contratos sin saltarse ninguno | `.github/workflows/ci.yml`, `Dockerfile` |
+
+### Cómo correr los tests de integración en local
+
+Requiere Docker. Postgres "plano" (imagen oficial) + `supabase/tests/preparar-postgres-plano.sql`, que crea los roles y el esquema `auth` que las migraciones esperan (es lo mismo que hace la CI):
+
+```bash
+docker run -d --name pg-pruebas -e POSTGRES_PASSWORD=postgres -p 127.0.0.1:55432:5432 postgres:17-alpine
+docker run -d --name redis-pruebas -p 127.0.0.1:56379:6379 redis:7-alpine
+DATABASE_URL_DIRECT=postgresql://postgres:postgres@127.0.0.1:55432/postgres PREPARAR_POSTGRES_PLANO=si sh scripts/aplicar-migraciones.sh
+TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55432/postgres TEST_REDIS_URL=redis://127.0.0.1:56379 pnpm --filter @proinserco/web test
+```
+
+Diferencias con Supabase real: `auth.users` es mínima y el usuario de conexión es superusuario (puede comprobar triggers como dueño y asumir `anon`/`service_role`). Las funciones del flujo público tienen dueño **sin** superusuario ni `BYPASSRLS`, así que sus privilegios y políticas sí se prueban de verdad.
 
 ---
 
@@ -82,16 +118,16 @@ Se decide **solo** en `apps/web/src/server/container.ts` (función `crearContene
 | Auditoría | `crearRegistroAuditoriaMemoria()` | `crearRegistroAuditoriaPostgres()` |
 | Donantes y consentimientos | `crearRepositorioDonantesMemoria()` / `crearRegistroConsentimientosMemoria()` | `crearRepositorioDonantesPostgres()` / `crearRegistroConsentimientosPostgres()` |
 | Donaciones | `crearRepositorioDonacionesMemoria()` | `crearRepositorioDonacionesPostgres()` |
-| Pasarela | `crearPasarelaSimulada({ ids, urlBase })` | `crearPasarelaOpenpay({ merchantId, llavePrivada, urlApi })` |
-| Identidad | `crearIdentityProviderMemoria(USUARIOS_DEMO, …)` | `crearIdentityProviderSupabase({ url, claveAnonima })` |
+| Pasarela | `crearPasarelaSimulada({ ids, urlBase })` (solo fuera de producción) | `crearPasarelaOpenpay({ merchantId, llavePrivada, urlApi })` |
+| Identidad | `crearIdentityProviderMemoria(usuariosDemo(), …)` (solo fuera de producción) | `crearIdentityProviderSupabase({ url, claveAnonima })` |
 
 Dos puertos **no** dependen de `ADAPTADORES` sino de variables propias:
 
 - Limitador de tasa: `LIMITADOR_URL` vacío → `crearLimitadorMemoria`; con valor → `crearLimitadorRedis(url)`.
 - Anti-bots: `ANTIBOTS` (por defecto `turnstile` con `real`, `memoria` con `memoria`); con `turnstile` y `TURNSTILE_SECRET_KEY` → `crearVerificadorTurnstile`.
 
-> [!danger] **Trampa**
-> `crearLimitadorRedis` es un esqueleto: su `consumir()` lanza `NoImplementado`. Si pones `LIMITADOR_URL` **antes** de implementarlo, login, MFA, donar y el webhook empezarán a fallar con error. No definas la variable hasta que el adaptador exista.
+> [!note] **Limitador (actualizado 2026-11-18)**
+> `crearLimitadorRedis` está implementado (Lua atómico, fallo cerrado salvo `webhook-openpay:` y `resultado-donacion:`). En **serverless** (`DESPLIEGUE=vercel` o `VERCEL` definido) `LIMITADOR_URL` es **obligatoria** en producción: sin ella la app no arranca.
 
 ### Protección contra memoria en producción
 
@@ -430,11 +466,11 @@ Cookies `HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/`, sin `Domain`. En HTTP
 
 ### Bloqueo progresivo
 
-El código actual solo aplica **límite de tasa** (por IP y por identidad); **no** existe bloqueo progresivo por cuenta. Debe añadirse al backend real: tras N fallos consecutivos para un usuario, espera creciente (por ejemplo 1, 5, 15 minutos) y alerta; sin revelar si la cuenta existe. Dónde: dentro de `iniciarSesion` del adaptador o con contador en Redis/BD por `hash(correo)`. Es un comportamiento nuevo, no una modificación de contrato.
+**Actualizado 2026-11-18:** implementado en `identity-provider-supabase.ts` con bloqueo duro por correo + IP y retardo por correo (ver sección 0). Texto original: el código solo aplicaba **límite de tasa** (por IP y por identidad); **no** existía bloqueo progresivo por cuenta. Debe añadirse al backend real: tras N fallos consecutivos para un usuario, espera creciente (por ejemplo 1, 5, 15 minutos) y alerta; sin revelar si la cuenta existe. Dónde: dentro de `iniciarSesion` del adaptador o con contador en Redis/BD por `hash(correo)`. Es un comportamiento nuevo, no una modificación de contrato.
 
 ### Alta de usuarios del panel
 
-No hay pantalla para crear usuarios ni invitar. Mientras tanto: crear usuarios en Supabase por invitación, insertar su fila en `usuario_roles` y enrolar su TOTP. Los datos de `usuarios-demo.ts` y `demo.ts` **no** deben existir en producción (sección 9, punto 8).
+No hay pantalla para crear usuarios. **Actualizado 2026-11-18:** se usa `scripts/alta-usuario-panel.mjs`, que crea el usuario con contraseña, sincroniza `usuario_roles` y `perfiles`, **enrola el TOTP**, muestra una sola vez el secreto y el URI `otpauth://` y verifica un primer código. El modo por invitación se eliminó (el invitado enrolaba su TOTP solo con la contraseña). Teléfono perdido: `--actualizar-existente --restablecer-mfa`. Los usuarios demo (`usuarios-demo.ts`) solo existen con memoria fuera de producción.
 
 ---
 
@@ -483,7 +519,7 @@ Recogidas durante la construcción. **Cada una toca el contrato** (esquemas, pue
 
 - `apps/web/src/app/(auth)/acceso/demo.ts` (usuarios, contraseñas y secretos TOTP de demostración repetidos para mostrarlos) y `apps/web/src/app/(auth)/acceso/acciones-demo.ts` (`codigoDemoAccion`, que devuelve el código TOTP vigente). Ambos solo responden con `ADAPTADORES=memoria` y fuera de producción, pero los secretos están **en el repositorio**. `formulario-acceso.tsx` y `page.tsx` de esa carpeta los usan: hay que quitar esas referencias en una PR de interfaz acordada con Michael.
 - `apps/web/src/modules/iam/infrastructure/usuarios-demo.ts` (contraseñas y secretos TOTP) y el adaptador `identity-provider-memoria.ts` si se decide no conservar el modo demo.
-- La pasarela simulada y sus piezas: `modules/donaciones/infrastructure/pasarela-simulada.ts`, `modules/donaciones/ui/acciones-pasarela-simulada.ts`, `app/(public)/donar/pasarela-simulada/page.tsx` (la ruta está excluida en `app/robots.ts`).
+- La pasarela simulada y sus piezas: `modules/donaciones/infrastructure/pasarela-simulada.ts`, `modules/donaciones/ui/acciones-pasarela-simulada.ts`, `app/(public)/donar/pasarela-simulada/page.tsx` (la ruta está excluida en `app/robots.ts`). **Decisión 2026-11-18:** se conservan para desarrollo local y E2E, pero solo se instancian con `ADAPTADORES=memoria` y `NODE_ENV` distinto de `production` (las fábricas lanzan en producción y la página responde 404).
 - Semillas ficticias: `semilla-donaciones.ts`, `semilla-donantes.ts`, `semilla-auditoria.ts` y el helper `aleatorio-determinista.ts`.
 - Ninguna de esas rutas debe poder alcanzarse con `ADAPTADORES=real`; verifícalo con una petición real en el entorno de staging.
 - Si alguna vez se desplegó una demo pública con `ADAPTADORES_MEMORIA_EN_PRODUCCION=si`: considerar esos secretos TOTP y contraseñas **comprometidos** y nunca reutilizarlos.
@@ -519,7 +555,12 @@ Fuente: `.env.example` (raíz) y `apps/web/src/server/env.ts`. Local: copiar a `
 | `OPENPAY_WEBHOOK_CONTRASENA` | Contraseña del Basic auth del webhook (>= 24 caracteres) | **Secreta** | Se genera y se registra en el dashboard | Con `ADAPTADORES=real` |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | Clave de sitio de Turnstile. **Se incrusta en el build** | **Pública** | Dashboard de Cloudflare (por defecto `1x00000000000000000000AA`, de pruebas) | Opcional (tiene valor por defecto de pruebas: en producción **debe** ser la real) |
 | `TURNSTILE_SECRET_KEY` | Clave secreta de Turnstile (siteverify) | **Secreta** | Dashboard de Cloudflare | Con `ADAPTADORES=real` o `ANTIBOTS=turnstile` |
-| `LIMITADOR_URL` | Redis (`rediss://…`) para el limitador compartido. Vacío = memoria | **Secreta** | Redis del VPS / Upstash | Opcional; **no la pongas antes de implementar `limitador-redis.ts`** |
+| `LIMITADOR_URL` | Redis (`redis://…` privado o `rediss://…` TLS) para el limitador compartido. Vacío = memoria (una sola instancia) | **Secreta** | Redis del VPS / Upstash | Opcional en VPS de una instancia; **obligatoria** en serverless (Vercel) en producción |
+| `DESPLIEGUE` = `vercel` / `VERCEL` | Serverless: IP desde `X-Real-IP` de Vercel y `LIMITADOR_URL` obligatoria. `VERCEL` la define Vercel | No secreta | — | Solo en Vercel |
+| `ALERTAS_WEBHOOK_URL` | Webhook HTTPS (Slack, Discord, Google Chat, n8n, relay de correo) para las alertas de la conciliación | **Secreta** | Canal de alertas | Opcional (sin ella: log + auditoría) |
+| `CRON_SECRET` | Solo en Vercel: Vercel Cron lo envía como Bearer; mismo valor que `CRON_CONCILIACION_SECRETO` | **Secreta** | Generada | Solo en Vercel |
+| `ALTA_USUARIO_CONTRASENA` | Solo `scripts/alta-usuario-panel.mjs` (mejor usar el prompt oculto) | **Secreta** | — | No la usa la app |
+| `TEST_DATABASE_URL`, `TEST_REDIS_URL` | Postgres y Redis efímeros para los tests de integración (CI o Docker local) | No (efímeros) | — | Solo tests |
 | `PEXELS_API_KEY` | Solo para `scripts/pexels.mjs` (fotos de ejemplo) | Secreta | Cuenta de Pexels | No la usa la app. En `apps/web/.env.local`, nunca en el repositorio ni en producción. **Hay que rotarla** (ver checklist) |
 | `PUERTO_E2E` | Puerto de Playwright (por defecto 3100) | No secreta | — | Solo para E2E; no está en `.env.example` |
 
@@ -532,7 +573,7 @@ Nuevas variables que probablemente necesites y **no existen**: secreto de ruta d
 Del estándar de [[Handoff Frontend a Backend]], adaptada:
 
 - [ ] Los adaptadores reales pasan **los mismos** tests de contrato que los de memoria (hay que escribirlos, sección 4).
-- [ ] Migraciones con RLS `ENABLE` + `FORCE` y los tres tests de seguridad obligatorios.
+- [x] Migraciones con RLS `ENABLE` + `FORCE` y los tres tests de seguridad obligatorios (job `integracion` de la CI; 2026-11-18).
 - [ ] Sin cambios en `ui/` ni en `app/` salvo PR de contrato aprobada por los dos.
 - [ ] E2E de los flujos críticos (donar de punta a punta, login con MFA) en verde con `ADAPTADORES=real` contra staging.
 - [ ] Openpay y Turnstile probados en sandbox; webhook probado con eventos reales de sandbox y con un aviso falso que **no** aprueba nada.

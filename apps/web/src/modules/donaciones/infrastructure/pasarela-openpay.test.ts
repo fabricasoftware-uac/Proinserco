@@ -30,7 +30,9 @@ describe('conversión COP Openpay', () => {
   it('aImporteDesdeOpenpay reconvierte COP a centavos bigint', () => {
     expect(aImporteDesdeOpenpay(50_000, 'COP')).toEqual({ centavos: 5_000_000n, moneda: 'COP' })
     expect(aImporteDesdeOpenpay(50_000.5, 'COP')).toEqual({ centavos: 5_000_050n, moneda: 'COP' })
-    expect(() => aImporteDesdeOpenpay(50_000, 'USD')).toThrow('Moneda')
+    // Otra moneda NO lanza (evita 500 y reintentos en bucle del webhook): null = discrepancia.
+    expect(aImporteDesdeOpenpay(50_000, 'USD')).toBeNull()
+    expect(aImporteDesdeOpenpay(50_000, 'cop')).toEqual({ centavos: 5_000_000n, moneda: 'COP' })
     expect(() => aImporteDesdeOpenpay(0, 'COP')).toThrow('inválido')
     expect(() => aImporteDesdeOpenpay(Number.POSITIVE_INFINITY, 'COP')).toThrow('inválido')
   })
@@ -218,6 +220,7 @@ describe('adaptador PasarelaOpenpay', () => {
       referencia: 'DON-000000000000000000001',
       estado: esperado,
       importe: { centavos: 5_000_000n, moneda: 'COP' },
+      monedaReportada: 'COP',
       metodoPago: 'tarjeta · visa · •••• 1111',
     })
     expect(cargo.metodoPago).not.toContain('411111')
@@ -347,5 +350,81 @@ describe('adaptador PasarelaOpenpay', () => {
     expect(advertencias).not.toContain('789')
     expect(advertencias).not.toContain('Authorization')
     expect(advertencias).not.toContain('sk_privada_super_secreta')
+  })
+
+  it('consultarCargo con moneda distinta de COP devuelve importe null y la moneda reportada (sin lanzar)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: 'tr_usd',
+            order_id: 'DON-000000000000000000001',
+            status: 'completed',
+            amount: 12,
+            currency: 'USD',
+          }),
+          { status: 200 },
+        ),
+      ),
+    )
+    const cargo = await crearPasarelaOpenpay(CONFIG_SANDBOX).consultarCargo('tr_usd')
+    expect(cargo.importe).toBeNull()
+    expect(cargo.monedaReportada).toBe('USD')
+    expect(cargo.estado).toBe('aprobado')
+  })
+
+  it('buscarCargoPorReferencia filtra por order_id en la API y descarta cargos de otra referencia', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify([
+          { id: 'tr_otro', order_id: 'DON-OTRAOTRAOTRAOTRAOTRAO', status: 'completed', amount: 50_000, currency: 'COP' },
+          { id: 'tr_mio', order_id: 'DON-000000000000000000001', status: 'charge_pending', amount: 50_000, currency: 'COP' },
+        ]),
+        { status: 200 },
+      ),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const pasarela = crearPasarelaOpenpay(CONFIG_SANDBOX)
+
+    const cargo = await pasarela.buscarCargoPorReferencia('DON-000000000000000000001')
+    expect(cargo).toMatchObject({ idCargo: 'tr_mio', estado: 'pendiente', referencia: 'DON-000000000000000000001' })
+    const [url, init] = fetchMock.mock.calls[0] ?? []
+    expect(String(url)).toBe(
+      'https://sandbox-api.openpay.co/v1/m_test_123/charges?order_id=DON-000000000000000000001&offset=0&limit=10',
+    )
+    expect(init?.method).toBe('GET')
+
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
+    expect(await pasarela.buscarCargoPorReferencia('DON-000000000000000000002')).toBeNull()
+    await expect(pasarela.buscarCargoPorReferencia('no-es-referencia')).rejects.toThrow('inválida')
+  })
+
+  it('listarCargos pagina por fecha de creación y omite (con aviso) estados desconocidos', async () => {
+    const alAdvertir = vi.fn()
+    const pagina1 = Array.from({ length: 100 }, (_, i) => ({
+      id: `tr_${i}`,
+      order_id: 'DON-000000000000000000001',
+      status: i === 0 ? 'estado_raro' : 'completed',
+      amount: 50_000,
+      currency: 'COP',
+    }))
+    const pagina2 = [{ id: 'tr_ultimo', order_id: 'DON-000000000000000000002', status: 'completed', amount: 1, currency: 'COP' }]
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(pagina1), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(pagina2), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const cargos = await crearPasarelaOpenpay({ ...CONFIG_SANDBOX, alAdvertir }).listarCargos({
+      desde: new Date('2026-11-16T15:00:00Z'),
+      hasta: new Date('2026-11-18T15:00:00Z'),
+    })
+    expect(cargos).toHaveLength(100)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain(
+      'creation%5Bgte%5D=2026-11-16&creation%5Blte%5D=2026-11-18&offset=100&limit=100',
+    )
+    expect(alAdvertir).toHaveBeenCalledTimes(1)
   })
 })

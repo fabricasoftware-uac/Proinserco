@@ -37,48 +37,50 @@ export function probarContratoRepositoriosDonantes(
   crearContexto: () => Promise<ContextoRepositoriosDonantes> | ContextoRepositoriosDonantes,
 ): void {
   describe('contrato de RepositorioDonantes', () => {
-    it('guardar inserta y actualiza por id sin duplicar ni alterar creadoEn', async () => {
+    it('registrarSiNoExiste inserta un documento nuevo y devuelve su id', async () => {
       const { donantes, enContextoPanel } = await crearContexto()
-      const tCreacion = new Date('2026-11-16T10:00:00.000Z')
-      const tActualizacion = new Date('2026-11-16T12:00:00.000Z')
-      const original = crearDonantePrueba({ creadoEn: tCreacion, actualizadoEn: tCreacion, quiereCertificado: false })
+      const nuevo = crearDonantePrueba({ quiereCertificado: false })
 
-      const conteoInicial = await enContextoPanel(() => donantes.contar())
-      await donantes.guardar(original)
-      expect(await enContextoPanel(() => donantes.contar())).toBe(conteoInicial + 1)
-
-      const actualizado: Donante = {
-        ...original,
-        nombres: 'Ana Lucía',
-        correo: `actualizado.${randomUUID().slice(0, 8)}@proinserco.test`,
-        celular: '+573119876543',
-        quiereCertificado: true,
-        actualizadoEn: tActualizacion,
-      }
-      await donantes.guardar(actualizado)
-
-      expect(await enContextoPanel(() => donantes.contar())).toBe(conteoInicial + 1)
-
-      const leido = await enContextoPanel(() => donantes.buscarPorId(original.id))
-      expect(leido).toEqual(actualizado)
+      expect(await donantes.registrarSiNoExiste(nuevo)).toEqual({ id: nuevo.id, existia: false })
+      expect(await enContextoPanel(() => donantes.buscarPorId(nuevo.id))).toEqual(nuevo)
     })
 
-    it('buscarPorId y buscarPorDocumento encuentran existentes y retornan null para inexistentes o no-UUID', async () => {
+    it('registrarSiNoExiste con un documento existente NO sobrescribe sus datos de contacto: solo puede activar el certificado', async () => {
       const { donantes, enContextoPanel } = await crearContexto()
-      const donante = crearDonantePrueba({ tipoDocumento: 'CE' })
-      await donantes.guardar(donante)
+      const tCreacion = new Date('2026-11-16T10:00:00.000Z')
+      const tIntento = new Date('2026-11-16T12:00:00.000Z')
+      const original = crearDonantePrueba({ creadoEn: tCreacion, actualizadoEn: tCreacion, quiereCertificado: false })
+      await donantes.registrarSiNoExiste(original)
 
-      const porId = await enContextoPanel(() => donantes.buscarPorId(donante.id))
-      expect(porId?.id).toBe(donante.id)
-      expect(porId?.correo).toBe(donante.correo)
+      // Otra persona escribe el MISMO documento con sus propios datos de contacto.
+      const suplantacion: Donante = {
+        ...crearDonantePrueba({ creadoEn: tIntento, actualizadoEn: tIntento, quiereCertificado: false }),
+        tipoDocumento: original.tipoDocumento,
+        numeroDocumento: original.numeroDocumento,
+        nombres: 'Otra Persona',
+        correo: `atacante.${randomUUID().slice(0, 8)}@proinserco.test`,
+        celular: '+573119876543',
+      }
+      expect(await donantes.registrarSiNoExiste(suplantacion)).toEqual({ id: original.id, existia: true })
+      expect(await enContextoPanel(() => donantes.buscarPorId(original.id))).toEqual(original)
+      expect(await enContextoPanel(() => donantes.buscarPorId(suplantacion.id))).toBeNull()
 
-      const porDoc = await donantes.buscarPorDocumento('CE', donante.numeroDocumento)
-      expect(porDoc?.id).toBe(donante.id)
+      // Pedir certificado sí se registra (nunca se desactiva), sin tocar el contacto.
+      await donantes.registrarSiNoExiste({ ...suplantacion, id: randomUUID() as DonanteId, quiereCertificado: true })
+      const conCertificado = await enContextoPanel(() => donantes.buscarPorId(original.id))
+      expect(conCertificado).toEqual({ ...original, quiereCertificado: true, actualizadoEn: tIntento })
+      await donantes.registrarSiNoExiste({ ...suplantacion, id: randomUUID() as DonanteId, quiereCertificado: false })
+      expect((await enContextoPanel(() => donantes.buscarPorId(original.id)))?.quiereCertificado).toBe(true)
 
+      // Mismo número con otro tipo de documento = otra persona.
+      const otroTipo = { ...suplantacion, id: randomUUID() as DonanteId, tipoDocumento: 'PA' as const }
+      expect(await donantes.registrarSiNoExiste(otroTipo)).toEqual({ id: otroTipo.id, existia: false })
+    })
+
+    it('buscarPorId retorna null para inexistentes o no-UUID', async () => {
+      const { donantes, enContextoPanel } = await crearContexto()
       expect(await enContextoPanel(() => donantes.buscarPorId(randomUUID()))).toBeNull()
       expect(await enContextoPanel(() => donantes.buscarPorId('no-es-uuid'))).toBeNull()
-      expect(await donantes.buscarPorDocumento('CC', `INEXISTENTE-${randomUUID().slice(0, 8)}`)).toBeNull()
-      expect(await donantes.buscarPorDocumento('PA', donante.numeroDocumento)).toBeNull()
     })
 
     it('listar filtra por q (nombre, apellido, correo y comodines escapados), pagina por cursor sin duplicados y maneja cursores inválidos', async () => {
@@ -126,7 +128,7 @@ export function probarContratoRepositoriosDonantes(
       })
 
       for (const d of [d1, d2, d3, d4, d5]) {
-        await donantes.guardar(d)
+        await donantes.registrarSiNoExiste(d)
       }
 
       // Búsqueda por nombre, apellido y correo con `_` literal
@@ -203,8 +205,8 @@ export function probarContratoRepositoriosDonantes(
       const { donantes, consentimientos, enContextoPanel } = await crearContexto()
       const donanteA = crearDonantePrueba()
       const donanteB = crearDonantePrueba()
-      await donantes.guardar(donanteA)
-      await donantes.guardar(donanteB)
+      await donantes.registrarSiNoExiste(donanteA)
+      await donantes.registrarSiNoExiste(donanteB)
 
       const t1 = new Date('2026-11-16T10:00:00.000Z')
       const t2 = new Date('2026-11-16T10:01:00.000Z')

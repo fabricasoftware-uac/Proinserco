@@ -19,6 +19,8 @@ export const AccionAuditable = z.enum([
   'donantes.exportados',
   'consentimiento.registrado',
   'ajustes.cambiados',
+  /** Alerta de la conciliación diaria (severidad en detalles). */
+  'conciliacion.alerta',
 ])
 export type AccionAuditable = z.infer<typeof AccionAuditable>
 

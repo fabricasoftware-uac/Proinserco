@@ -8,15 +8,22 @@ import type { Donante } from '../domain/donante'
 export function crearRepositorioDonantesMemoria(): RepositorioDonantes {
   const filas = new Map<string, Donante>()
   return {
-    async guardar(donante) {
+    async registrarSiNoExiste(donante) {
+      for (const existente of filas.values()) {
+        if (existente.tipoDocumento !== donante.tipoDocumento || existente.numeroDocumento !== donante.numeroDocumento) {
+          continue
+        }
+        // Mismo comportamiento que public.registrar_donante_publico: no se tocan datos de contacto.
+        if (donante.quiereCertificado && !existente.quiereCertificado) {
+          filas.set(existente.id, Object.freeze({ ...existente, quiereCertificado: true, actualizadoEn: donante.actualizadoEn }))
+        }
+        return { id: existente.id, existia: true }
+      }
       filas.set(donante.id, Object.freeze({ ...donante }))
+      return { id: donante.id, existia: false }
     },
     async buscarPorId(id) {
       return filas.get(id) ?? null
-    },
-    async buscarPorDocumento(tipo, numero) {
-      for (const d of filas.values()) if (d.tipoDocumento === tipo && d.numeroDocumento === numero) return d
-      return null
     },
     async listar(filtros, paginacion) {
       const q = filtros.q?.toLowerCase()

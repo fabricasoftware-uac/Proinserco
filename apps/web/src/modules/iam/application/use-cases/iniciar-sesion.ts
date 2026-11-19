@@ -1,18 +1,15 @@
 import type { Auditor } from '@/shared/application/ports/auditor'
-import { CredencialesInvalidas } from '../../domain/errores'
+import { AccesoNoActivado, CredencialesInvalidas } from '../../domain/errores'
 import { Credenciales } from '../../domain/esquemas'
 import type { AlmacenCookies } from '../ports/almacen-cookies'
-import type { EnrolamientoMfaPendiente, IdentityProvider } from '../ports/identity-provider'
+import type { IdentityProvider } from '../ports/identity-provider'
 
 type Dependencias = { identidad: IdentityProvider; auditor: Auditor }
 
-export type ResultadoInicioSesion = Readonly<{
-  requiereSegundoFactor: true
-  enrolamientoMfa?: EnrolamientoMfaPendiente
-}>
+export type ResultadoInicioSesion = Readonly<{ requiereSegundoFactor: true }>
 
 /**
- * Primer factor. El rate limit (por IP y por correo) va ANTES, en la acción.
+ * Primer factor. El rate limit (por IP y por correo + IP) va ANTES, en la acción.
  * Los intentos fallidos quedan en la auditoría sin la contraseña.
  */
 export function crearIniciarSesion(deps: Dependencias) {
@@ -23,7 +20,7 @@ export function crearIniciarSesion(deps: Dependencias) {
   ): Promise<ResultadoInicioSesion> {
     const credenciales = Credenciales.parse(entrada)
     try {
-      const { usuarioId, enrolamientoMfa } = await deps.identidad.iniciarSesion(credenciales, cookies)
+      const { usuarioId } = await deps.identidad.iniciarSesion(credenciales, cookies, { ip })
       await deps.auditor.registrar({
         accion: 'sesion.iniciada',
         actorId: usuarioId,
@@ -32,16 +29,16 @@ export function crearIniciarSesion(deps: Dependencias) {
         ip,
         detalles: { factor: 'contrasena' },
       })
-      return enrolamientoMfa ? { requiereSegundoFactor: true, enrolamientoMfa } : { requiereSegundoFactor: true }
+      return { requiereSegundoFactor: true }
     } catch (error) {
-      if (error instanceof CredencialesInvalidas) {
+      if (error instanceof CredencialesInvalidas || error instanceof AccesoNoActivado) {
         await deps.auditor.registrar({
           accion: 'sesion.fallida',
           actorId: 'desconocido',
           recurso: 'sesion',
           recursoId: null,
           ip,
-          detalles: { motivo: 'credenciales' },
+          detalles: { motivo: error instanceof AccesoNoActivado ? 'mfa_no_activado' : 'credenciales' },
         })
       }
       throw error

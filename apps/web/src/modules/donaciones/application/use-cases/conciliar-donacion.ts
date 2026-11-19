@@ -5,7 +5,7 @@ import { ACTOR_SISTEMA } from '@/shared/domain/actor'
 import { importesIguales } from '@/shared/domain/importe'
 import type { Donacion } from '../../domain/donacion'
 import { type EstadoDonacion, esTransicionValida, type OrigenTransicion } from '../../domain/estado-donacion'
-import type { EstadoCargo, PasarelaPagos } from '../ports/pasarela-pagos'
+import type { CargoConsultado, EstadoCargo, PasarelaPagos } from '../ports/pasarela-pagos'
 import type { RepositorioDonaciones } from '../ports/repositorio-donaciones'
 
 type Dependencias = {
@@ -34,7 +34,13 @@ const ESTADO_POR_CARGO: Readonly<Record<EstadoCargo, EstadoDonacion>> = {
   contracargo: 'contracargo',
 }
 
-export type IdentificadorConciliacion = { referencia: string } | { idCargo: string }
+/**
+ * Qué donación conciliar. El webhook manda el id del cargo y, si viene, la referencia
+ * (`order_id`) como respaldo: si `crearCargo` funcionó pero falló guardar el `idCargo`,
+ * la donación solo se encuentra por referencia. Ninguno de los dos se cree sin más:
+ * el cargo se consulta a la pasarela y su `order_id` debe coincidir con la referencia.
+ */
+export type IdentificadorConciliacion = { referencia: string } | { idCargo: string; referenciaRespaldo?: string | undefined }
 
 /**
  * Lleva la donación al estado que dice la PASARELA. Es lo único que confirma
@@ -52,18 +58,19 @@ export function crearConciliarDonacion(deps: Dependencias) {
     id: IdentificadorConciliacion,
     origen: OrigenTransicion = 'conciliacion',
   ): Promise<ResultadoConciliacion> {
-    const donacion =
-      'referencia' in id
-        ? await deps.donaciones.buscarPorReferencia(id.referencia)
-        : await deps.donaciones.buscarPorIdCargo(id.idCargo)
+    const donacion = await buscarDonacion(deps, id)
     if (!donacion) return { resultado: 'no_encontrada' }
-    if (!donacion.datos.idCargo) return { resultado: 'sin_cargo', estado: donacion.estado }
 
-    const cargo = await deps.pasarela.consultarCargo(donacion.datos.idCargo)
+    // Sin idCargo guardado (falló el UPDATE tras crear el cargo): se recupera el cargo
+    // consultando a la pasarela, por el id que trae el aviso o por nuestra referencia.
+    const sinIdCargo = !donacion.datos.idCargo
+    const cargo = await obtenerCargo(deps, donacion, id)
+    if (!cargo) return { resultado: 'sin_cargo', estado: donacion.estado }
     const destino = ESTADO_POR_CARGO[cargo.estado]
 
-    if (cargo.referencia !== donacion.datos.referencia || !importesIguales(cargo.importe, donacion.datos.importe)) {
-      await auditarDiscrepancia(deps, donacion, cargo.estado)
+    const motivo = motivoDiscrepancia(donacion, cargo)
+    if (motivo) {
+      await auditarDiscrepancia(deps, donacion, cargo, motivo)
       return { resultado: 'discrepancia', estado: donacion.estado }
     }
     if (destino === donacion.estado) return { resultado: 'sin_cambios', estado: donacion.estado }
@@ -76,7 +83,8 @@ export function crearConciliarDonacion(deps: Dependencias) {
 
     let actual = donacion
     for (const paso of camino) {
-      const siguiente = actual.transicionar(paso, deps.reloj.ahora(), origen, { metodoPago: cargo.metodoPago })
+      const cambios = sinIdCargo && !actual.datos.idCargo ? { idCargo: cargo.idCargo } : {}
+      const siguiente = actual.transicionar(paso, deps.reloj.ahora(), origen, { metodoPago: cargo.metodoPago, ...cambios })
       const guardada = await deps.donaciones.actualizarSiEstado(siguiente, actual.estado)
       if (!guardada) {
         const vigente = await deps.donaciones.buscarPorId(donacion.id)
@@ -93,6 +101,32 @@ export function crearConciliarDonacion(deps: Dependencias) {
     })
     return { resultado: 'actualizada', estado: actual.estado }
   }
+}
+
+async function buscarDonacion(deps: Dependencias, id: IdentificadorConciliacion): Promise<Donacion | null> {
+  if ('referencia' in id) return deps.donaciones.buscarPorReferencia(id.referencia)
+  const porCargo = await deps.donaciones.buscarPorIdCargo(id.idCargo)
+  if (porCargo || !id.referenciaRespaldo) return porCargo
+  return deps.donaciones.buscarPorReferencia(id.referenciaRespaldo)
+}
+
+async function obtenerCargo(
+  deps: Dependencias,
+  donacion: Donacion,
+  id: IdentificadorConciliacion,
+): Promise<CargoConsultado | null> {
+  if (donacion.datos.idCargo) return deps.pasarela.consultarCargo(donacion.datos.idCargo)
+  if ('idCargo' in id) return deps.pasarela.consultarCargo(id.idCargo)
+  return deps.pasarela.buscarCargoPorReferencia(donacion.datos.referencia)
+}
+
+type MotivoDiscrepancia = 'referencia' | 'moneda' | 'importe'
+
+function motivoDiscrepancia(donacion: Donacion, cargo: CargoConsultado): MotivoDiscrepancia | null {
+  if (cargo.referencia !== donacion.datos.referencia) return 'referencia'
+  if (!cargo.importe) return 'moneda'
+  if (!importesIguales(cargo.importe, donacion.datos.importe)) return 'importe'
+  return null
 }
 
 /** Una donación que se quedó en `creada` pasa primero por `pendiente`. */
@@ -113,13 +147,19 @@ async function auditarTransicion(deps: Dependencias, donacion: Donacion, hacia: 
   })
 }
 
-async function auditarDiscrepancia(deps: Dependencias, donacion: Donacion, estadoPasarela: EstadoCargo) {
+async function auditarDiscrepancia(deps: Dependencias, donacion: Donacion, cargo: CargoConsultado, motivo: MotivoDiscrepancia) {
   await deps.auditor.registrar({
     accion: 'donacion.discrepancia',
     actorId: ACTOR_SISTEMA,
     recurso: 'donacion',
     recursoId: donacion.id,
     ip: null,
-    detalles: { estadoLocal: donacion.estado, estadoPasarela },
+    detalles: {
+      estadoLocal: donacion.estado,
+      estadoPasarela: cargo.estado,
+      motivo,
+      monedaPasarela: cargo.monedaReportada,
+      severidad: 'alta',
+    },
   })
 }

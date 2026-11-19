@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { FormularioDonar } from '@/flujos/donar/formulario-donar'
 import { CONTENIDO_SITIO } from '@/modules/contenido'
 import { LineaApoyo } from '@/modules/donaciones'
+import { nonceCsp } from '@/server/contexto-peticion'
 import { obtenerEnv } from '@/server/env'
 import { envPublico } from '@/shared/env-publico'
 
@@ -53,6 +54,7 @@ export default async function PaginaDonar({ searchParams }: { searchParams: Busq
           lineaInicial={lineaInicial}
           antibots={env.antibots}
           siteKey={envPublico.NEXT_PUBLIC_TURNSTILE_SITE_KEY}
+          nonce={await nonceCsp()}
         />
       </div>
     </main>

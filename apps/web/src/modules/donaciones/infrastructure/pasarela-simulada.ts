@@ -2,18 +2,22 @@ import type { CargoConsultado, EstadoCargo, PasarelaPagos } from '@/modules/dona
 import type { GeneradorIds } from '@/shared/application/ports/generador-ids'
 import { NoEncontrado } from '@/shared/domain/errores'
 import type { Importe } from '@/shared/domain/importe'
+import { exigirEntornoNoProductivo } from '@/shared/infrastructure/solo-desarrollo'
 
-/** Ruta interna simulada en pruebas unitarias de casos de uso. */
+/** Página que hace de checkout hospedado en desarrollo (solo ADAPTADORES=memoria). */
 export const RUTA_PASARELA_SIMULADA = '/donar/pasarela-simulada'
 
 type CargoSimulado = {
   idCargo: string
   referencia: string
   importe: Importe
+  /** Moneda que "reporta" la pasarela; por defecto la del importe. */
+  monedaReportada?: string | undefined
   descripcion: string
   estado: EstadoCargo
   metodoPago: string | null
   urlRetorno: string
+  creadoEn: Date
 }
 
 export type VistaCargoSimulado = Readonly<{
@@ -27,14 +31,20 @@ export type VistaCargoSimulado = Readonly<{
 export type PasarelaSimulada = PasarelaPagos & {
   verCargo(idCargo: string): VistaCargoSimulado | null
   resolverCargo(idCargo: string, resultado: 'aprobado' | 'rechazado'): string
-  sembrar(cargo: Omit<CargoSimulado, 'descripcion' | 'urlRetorno'>): void
+  sembrar(cargo: Omit<CargoSimulado, 'descripcion' | 'urlRetorno' | 'creadoEn'> & { creadoEn?: Date }): void
   forzarEstado(idCargo: string, estado: EstadoCargo, importe?: Importe): void
+  /** Simula que la pasarela reporta otra moneda (p. ej. 'USD'). */
+  forzarMoneda(idCargo: string, moneda: string): void
 }
 
 /**
- * Pasarela de pagos simulada EXCLUSIVA para pruebas unitarias.
+ * Pasarela de pagos SIMULADA: solo desarrollo local, E2E y pruebas unitarias
+ * (ADAPTADORES=memoria). No pide ni acepta datos de tarjeta: la página
+ * `/donar/pasarela-simulada` deja elegir aprobar o rechazar. Falla al instanciarse
+ * con NODE_ENV=production.
  */
 export function crearPasarelaSimulada(deps: { ids: GeneradorIds; urlBase: string }): PasarelaSimulada {
+  exigirEntornoNoProductivo('La pasarela simulada')
   const cargos = new Map<string, CargoSimulado>()
 
   function obtener(idCargo: string): CargoSimulado {
@@ -43,13 +53,17 @@ export function crearPasarelaSimulada(deps: { ids: GeneradorIds; urlBase: string
     return cargo
   }
 
-  const consultar = (c: CargoSimulado): CargoConsultado => ({
-    idCargo: c.idCargo,
-    referencia: c.referencia,
-    estado: c.estado,
-    importe: c.importe,
-    metodoPago: c.metodoPago,
-  })
+  const consultar = (c: CargoSimulado): CargoConsultado => {
+    const moneda = c.monedaReportada ?? c.importe.moneda
+    return {
+      idCargo: c.idCargo,
+      referencia: c.referencia,
+      estado: c.estado,
+      importe: moneda === 'COP' ? c.importe : null,
+      monedaReportada: moneda,
+      metodoPago: c.metodoPago,
+    }
+  }
 
   return {
     async crearCargo(solicitud) {
@@ -62,6 +76,7 @@ export function crearPasarelaSimulada(deps: { ids: GeneradorIds; urlBase: string
         estado: 'pendiente',
         metodoPago: null,
         urlRetorno: solicitud.urlRetorno,
+        creadoEn: new Date(),
       })
       const urlPago = new URL(RUTA_PASARELA_SIMULADA, deps.urlBase)
       urlPago.searchParams.set('cargo', idCargo)
@@ -69,6 +84,13 @@ export function crearPasarelaSimulada(deps: { ids: GeneradorIds; urlBase: string
     },
     async consultarCargo(idCargo) {
       return consultar(obtener(idCargo))
+    },
+    async buscarCargoPorReferencia(referencia) {
+      for (const c of cargos.values()) if (c.referencia === referencia) return consultar(c)
+      return null
+    },
+    async listarCargos({ desde, hasta }) {
+      return [...cargos.values()].filter((c) => c.creadoEn >= desde && c.creadoEn <= hasta).map(consultar)
     },
     verCargo(idCargo) {
       const c = cargos.get(idCargo)
@@ -90,12 +112,20 @@ export function crearPasarelaSimulada(deps: { ids: GeneradorIds; urlBase: string
       return c.urlRetorno
     },
     sembrar(cargo) {
-      cargos.set(cargo.idCargo, { ...cargo, descripcion: 'Donación a la Fundación Proinserco', urlRetorno: deps.urlBase })
+      cargos.set(cargo.idCargo, {
+        ...cargo,
+        creadoEn: cargo.creadoEn ?? new Date(),
+        descripcion: 'Donación a la Fundación Proinserco',
+        urlRetorno: deps.urlBase,
+      })
     },
     forzarEstado(idCargo, estado, importe) {
       const c = obtener(idCargo)
       c.estado = estado
       if (importe) c.importe = importe
+    },
+    forzarMoneda(idCargo, moneda) {
+      obtener(idCargo).monedaReportada = moneda
     },
   }
 }

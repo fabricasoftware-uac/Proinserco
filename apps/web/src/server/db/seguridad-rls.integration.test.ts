@@ -23,6 +23,7 @@ const TABLAS_PUBLIC = [
   'consentimientos',
   'donaciones',
   'donaciones_transiciones',
+  'donaciones_consultas_pasarela',
   'auditoria',
   'idempotencia_webhooks',
   'bloqueos_acceso',
@@ -170,7 +171,7 @@ describe.runIf(Boolean(testDatabaseUrl))('Seguridad RLS, inmutabilidad y concurr
     auditoriaIdSemilla = randomUUID()
     const ahora = new Date('2026-11-16T15:00:00.000Z')
 
-    await repoDonantes.guardar({
+    await repoDonantes.registrarSiNoExiste({
       id: donanteIdSemilla,
       nombres: 'Donante RLS',
       apellidos: 'Semilla Test',
@@ -306,9 +307,11 @@ describe.runIf(Boolean(testDatabaseUrl))('Seguridad RLS, inmutabilidad y concurr
     await enTransaccionRevertida(sqlCliente, async (tx) => {
       await tx.unsafe('SET LOCAL ROLE proinserco_publico')
 
-      const donantesVisibles = await tx.unsafe('SELECT id FROM public.donantes WHERE id = $1', [donanteIdSemilla])
-      expect(donantesVisibles).toHaveLength(1)
-
+      // Sin privilegios de tabla sobre donantes, donaciones ni transiciones (migración 20261118200000).
+      await esperarRechazoPrivilegio(tx, () => tx.unsafe('SELECT id FROM public.donantes LIMIT 1'))
+      await esperarRechazoPrivilegio(tx, () => tx.unsafe('SELECT id FROM public.donaciones LIMIT 1'))
+      await esperarRechazoPrivilegio(tx, () => tx.unsafe('SELECT id FROM public.donaciones_transiciones LIMIT 1'))
+      await esperarRechazoPrivilegio(tx, () => tx.unsafe('SELECT donacion_id FROM public.donaciones_consultas_pasarela LIMIT 1'))
       await esperarRechazoPrivilegio(tx, () => tx.unsafe('SELECT id FROM public.consentimientos LIMIT 1'))
       await esperarRechazoPrivilegio(tx, () => tx.unsafe('SELECT id FROM public.auditoria LIMIT 1'))
       await esperarRechazoPrivilegio(tx, () => tx.unsafe('SELECT clave FROM public.idempotencia_webhooks LIMIT 1'))
@@ -583,6 +586,134 @@ describe.runIf(Boolean(testDatabaseUrl))('Seguridad RLS, inmutabilidad y concurr
         }
       })
     }
+  })
+
+  it('proinserco_publico ya no puede LISTAR ni MODIFICAR donantes/donaciones directamente', async () => {
+    await enTransaccionRevertida(sqlCliente, async (tx) => {
+      await tx.unsafe('SET LOCAL ROLE proinserco_publico')
+      await esperarRechazoPrivilegio(tx, () => tx.unsafe('SELECT id, correo, celular FROM public.donantes'))
+      await esperarRechazoPrivilegio(tx, () => tx.unsafe('SELECT referencia, pagador_correo FROM public.donaciones'))
+      await esperarRechazoPrivilegio(tx, () =>
+        tx.unsafe(`UPDATE public.donantes SET correo = 'atacante@proinserco.test' WHERE id = $1`, [donanteIdSemilla]),
+      )
+      await esperarRechazoPrivilegio(tx, () => tx.unsafe(`UPDATE public.donantes SET celular = '+573110000000'`))
+      await esperarRechazoPrivilegio(tx, () =>
+        tx.unsafe(
+          `INSERT INTO public.donantes (nombres, apellidos, tipo_documento, numero_documento, correo, celular)
+           VALUES ('Ana', 'Test', 'CC', '99999999', 'ana@proinserco.test', '+573001234567')`,
+        ),
+      )
+      await esperarRechazoPrivilegio(tx, () =>
+        tx.unsafe(
+          `INSERT INTO public.donaciones (referencia, clave_idempotencia, estado, importe_centavos, donante_id, pagador_nombres, pagador_apellidos, pagador_correo, quiere_certificado)
+           VALUES ($1, $2, 'creada', 5000000, $3, 'Ana', 'Test', 'ana@proinserco.test', true)`,
+          [generarReferencia(), randomUUID(), donanteIdSemilla],
+        ),
+      )
+      await esperarRechazoPrivilegio(tx, () =>
+        tx.unsafe(`UPDATE public.donaciones SET url_pago = 'https://evil.test' WHERE id = $1`, [donacionIdSemilla]),
+      )
+      await esperarRechazoPrivilegio(tx, () =>
+        tx.unsafe(
+          `INSERT INTO public.donaciones_transiciones (donacion_id, desde, hacia, origen) VALUES ($1, 'creada', 'pendiente', 'servidor')`,
+          [donacionIdSemilla],
+        ),
+      )
+    })
+  })
+
+  it('las funciones del flujo público son SECURITY DEFINER acotadas: search_path fijo, sin EXECUTE para PUBLIC/anon y dueño sin BYPASSRLS', async () => {
+    const funciones = await sqlCliente<
+      Array<{
+        nombre: string
+        definer: boolean
+        config: string[] | null
+        dueno: string
+        bypass: boolean
+        publico: boolean
+        anon: boolean
+      }>
+    >`
+      SELECT p.proname AS nombre, p.prosecdef AS definer, p.proconfig AS config, r.rolname AS dueno, r.rolbypassrls AS bypass,
+             has_function_privilege('proinserco_publico', p.oid, 'EXECUTE') AS publico,
+             has_function_privilege('anon', p.oid, 'EXECUTE') AS anon
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        JOIN pg_roles r ON r.oid = p.proowner
+       WHERE n.nspname = 'public'
+         AND p.proname IN ('registrar_donante_publico', 'crear_donacion_publica', 'registrar_cargo_donacion_publica',
+                           'intento_donacion_por_clave', 'resultado_donacion_publica', 'reservar_consulta_pasarela_publica')
+    `
+    expect(funciones).toHaveLength(6)
+    for (const f of funciones) {
+      expect(f.definer).toBe(true)
+      expect(f.config).toContain('search_path=""')
+      expect(f.dueno).toBe('proinserco_flujo_publico')
+      expect(f.bypass).toBe(false)
+      expect(f.publico).toBe(true)
+      expect(f.anon).toBe(false)
+    }
+    const [sistema] = await sqlCliente<Array<{ puede: boolean }>>`
+      SELECT has_function_privilege('proinserco_sistema', 'public.registrar_donante_publico(uuid, text, text, text, text, text, text, boolean, timestamptz)', 'EXECUTE') AS puede
+    `
+    expect(sistema?.puede).toBe(false)
+  })
+
+  it('registrar_donante_publico con un documento existente no sobrescribe los datos de contacto de otra persona', async () => {
+    await enTransaccionRevertida(sqlCliente, async (tx) => {
+      const [antes] = await tx.unsafe(
+        'SELECT tipo_documento, numero_documento, nombres, correo, celular FROM public.donantes WHERE id = $1',
+        [donanteIdSemilla],
+      )
+      await tx.unsafe('SET LOCAL ROLE proinserco_publico')
+      const [resultado] = await tx.unsafe(
+        `SELECT donante_id, existia FROM public.registrar_donante_publico($1, 'Suplantador', 'Malicioso', $2, $3, 'atacante@proinserco.test', '+573119999999', true, now())`,
+        [randomUUID(), antes?.tipo_documento, antes?.numero_documento],
+      )
+      expect(resultado).toEqual({ donante_id: donanteIdSemilla, existia: true })
+      await tx.unsafe('RESET ROLE')
+      const [despues] = await tx.unsafe(
+        'SELECT nombres, correo, celular, quiere_certificado FROM public.donantes WHERE id = $1',
+        [donanteIdSemilla],
+      )
+      expect(despues).toEqual({
+        nombres: antes?.nombres,
+        correo: antes?.correo,
+        celular: antes?.celular,
+        quiere_certificado: true,
+      })
+    })
+  })
+
+  it('resultado_donacion_publica devuelve UNA donación sin datos personales y nada con referencias inválidas', async () => {
+    await enTransaccionRevertida(sqlCliente, async (tx) => {
+      const [donacion] = await tx.unsafe('SELECT referencia FROM public.donaciones WHERE id = $1', [donacionIdSemilla])
+      await tx.unsafe('SET LOCAL ROLE proinserco_publico')
+      const filas = await tx.unsafe('SELECT * FROM public.resultado_donacion_publica($1)', [donacion?.referencia])
+      expect(filas).toHaveLength(1)
+      expect(Object.keys(filas[0] ?? {}).sort()).toEqual(
+        ['creada_en', 'estado', 'importe_centavos', 'moneda', 'quiere_certificado', 'referencia'].sort(),
+      )
+      expect(await tx.unsafe(`SELECT * FROM public.resultado_donacion_publica('%')`)).toHaveLength(0)
+      expect(await tx.unsafe(`SELECT * FROM public.resultado_donacion_publica($1)`, [`' OR '1'='1`])).toHaveLength(0)
+    })
+  })
+
+  it('el rol de sistema puede auditar conciliacion.alerta; el público no', async () => {
+    await enTransaccionRevertida(sqlCliente, async (tx) => {
+      await tx.unsafe('SET LOCAL ROLE proinserco_sistema')
+      await tx.unsafe(
+        `INSERT INTO public.auditoria (accion, actor_id, recurso, detalles) VALUES ('conciliacion.alerta', 'sistema', 'conciliacion', '{"severidad":"critica"}')`,
+      )
+    })
+    await enTransaccionRevertida(sqlCliente, async (tx) => {
+      await tx.unsafe('SET LOCAL ROLE proinserco_publico')
+      await esperarRechazoPrivilegio(tx, () =>
+        tx.unsafe(
+          `INSERT INTO public.auditoria (accion, actor_id, recurso) VALUES ('conciliacion.alerta', 'sistema', 'conciliacion')`,
+        ),
+      )
+    })
   })
 
   it('concurrencia real en RepositorioDonacionesPostgres.actualizarSiEstado: solo 1 transición y 1 fila en donaciones_transiciones', async () => {

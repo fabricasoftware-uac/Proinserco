@@ -13,9 +13,11 @@ import { CodigoMfa, Credenciales, RutaSiguiente } from '../domain/esquemas'
 const CorreoSinValidar = z.object({ correo: z.string().max(254) })
 
 /**
- * Paso 1 del acceso: correo + contraseña. Límite 10/15 min por IP y
- * 5/15 min por correo ANTES de tocar el proveedor de identidad.
- * Éxito: `{ requiereSegundoFactor: true, enrolamientoMfa? }` → la interfaz pide el código TOTP.
+ * Paso 1 del acceso: correo + contraseña. Límite 10/15 min por IP y 5/15 min por
+ * correo + IP ANTES de tocar el proveedor de identidad. El límite por identidad incluye
+ * la IP a propósito: solo por correo, 5 intentos de un tercero dejarían fuera al
+ * administrador. Contra el ataque distribuido el proveedor aplica un retardo por correo.
+ * Éxito: `{ requiereSegundoFactor: true }` → la interfaz pide el código TOTP.
  */
 export const iniciarSesionAccion = accionPublica
   .metadata({ nombre: 'iniciar-sesion' })
@@ -24,6 +26,7 @@ export const iniciarSesionAccion = accionPublica
       limite: 10,
       ventanaSegundos: 900,
       limiteIdentidad: 5,
+      identidadConIp: true,
       identidad: (e) => {
         const r = CorreoSinValidar.safeParse(e)
         return r.success ? r.data.correo : null

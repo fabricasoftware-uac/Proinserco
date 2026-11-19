@@ -1,11 +1,22 @@
+import 'server-only'
 import { createHash } from 'node:crypto'
 import Redis from 'ioredis'
 import type { LimitadorDeTasa, ResultadoLimite } from '../application/ports/limitador-de-tasa'
 
+/** Redis en la red privada (Coolify): respuesta en milisegundos. */
 const TIMEOUT_MS = 200
+/**
+ * Redis gestionado por TLS (`rediss://`, p. ej. Upstash desde Vercel): el primer
+ * apretón TLS cruza Internet y 200 ms lo harían fallar cerrado en frío.
+ */
+const TIMEOUT_CONEXION_TLS_MS = 3_000
+const TIMEOUT_COMANDO_TLS_MS = 1_000
 const PREFIJO_REDIS = 'ratelimit:'
 const MARCADOR_IDENTIDAD = ':id:'
-const PREFIJOS_FALLO_ABIERTO = ['webhook-openpay:'] as const
+// Fallo ABIERTO solo donde bloquear hace más daño que dejar pasar: el webhook (Openpay
+// reintenta y la consulta autoritativa protege) y la página de resultado (la consulta a
+// la pasarela ya está limitada por donación en la base de datos).
+const PREFIJOS_FALLO_ABIERTO = ['webhook-openpay:', 'resultado-donacion:'] as const
 
 const SCRIPT_VENTANA_FIJA = `
 local cuenta = redis.call('INCR', KEYS[1])
@@ -26,6 +37,14 @@ export type OpcionesLimitadorRedis = Readonly<{
   alFallar?: (error: unknown, clave: string) => void
 }>
 
+/** Timeouts según el esquema: `rediss://` (TLS, remoto) tolera más latencia que `redis://` (red privada). */
+export function timeoutsRedis(url: string): { conexionMs: number; comandoMs: number; tls: boolean } {
+  const tls = url.trim().toLowerCase().startsWith('rediss://')
+  return tls
+    ? { conexionMs: TIMEOUT_CONEXION_TLS_MS, comandoMs: TIMEOUT_COMANDO_TLS_MS, tls }
+    : { conexionMs: TIMEOUT_MS, comandoMs: TIMEOUT_MS, tls }
+}
+
 function sanitizarClave(clave: string): string {
   const indice = clave.indexOf(MARCADOR_IDENTIDAD)
   if (indice === -1) return clave
@@ -40,7 +59,7 @@ function permiteFalloAbierto(claveSegura: string): boolean {
   return PREFIJOS_FALLO_ABIERTO.some((prefijo) => claveSegura.startsWith(prefijo))
 }
 
-function esperarConexionInicial(cliente: Redis): Promise<void> {
+function esperarConexionInicial(cliente: Redis, timeoutMs: number): Promise<void> {
   const estado = cliente.status
   if (estado !== 'wait' && estado !== 'connecting' && estado !== 'connect') {
     return Promise.resolve()
@@ -68,7 +87,7 @@ function esperarConexionInicial(cliente: Redis): Promise<void> {
 
     const temporizador = setTimeout(() => {
       concluir(() => reject(new Error('Tiempo de espera de conexión a Redis agotado')))
-    }, TIMEOUT_MS)
+    }, timeoutMs)
     temporizador.unref?.()
 
     cliente.once('ready', alEstarListo)
@@ -104,9 +123,11 @@ function analizarRespuestaLua(respuesta: unknown, ventana: number): { cuenta: nu
  * `webhook-openpay:`.
  */
 export function crearLimitadorRedis(url: string, opciones?: OpcionesLimitadorRedis): LimitadorDeTasa {
+  const timeouts = timeoutsRedis(url)
+  // ioredis activa TLS por sí mismo con `rediss://` (verificación de certificado incluida).
   const cliente = new Redis(url, {
-    connectTimeout: TIMEOUT_MS,
-    commandTimeout: TIMEOUT_MS,
+    connectTimeout: timeouts.conexionMs,
+    commandTimeout: timeouts.comandoMs,
     enableOfflineQueue: false,
     maxRetriesPerRequest: 1,
   })
@@ -122,7 +143,7 @@ export function crearLimitadorRedis(url: string, opciones?: OpcionesLimitadorRed
       const claveRedis = `${PREFIJO_REDIS}${claveSegura}`
 
       try {
-        await esperarConexionInicial(cliente)
+        await esperarConexionInicial(cliente, timeouts.conexionMs)
         const respuesta = await cliente.eval(SCRIPT_VENTANA_FIJA, 1, claveRedis, String(ventana))
         const { cuenta, ttl } = analizarRespuestaLua(respuesta, ventana)
         const permitido = cuenta <= limiteSeguro

@@ -55,12 +55,14 @@ describe('repositorios de donantes y consentimientos en Postgres', () => {
     vi.clearAllMocks()
   })
 
-  it('guardar ejecuta UPSERT por id en contexto público y buscarPorId rechaza no-UUID sin tocar la BD', async () => {
-    const { db, consultas } = crearDbInstrumentada(() => [])
+  it('registrarSiNoExiste solo usa la función acotada en contexto público (sin INSERT/UPDATE directos) y buscarPorId rechaza no-UUID', async () => {
+    const { db, consultas } = crearDbInstrumentada((sql) =>
+      sql.includes('registrar_donante_publico') ? [{ donante_id: UUID_2, existia: true }] : [],
+    )
     obtenerDbMock.mockReturnValue(db)
 
     const repo = crearRepositorioDonantesPostgres()
-    await repo.guardar({
+    const registrado = await repo.registrarSiNoExiste({
       id: UUID_1 as DonanteId,
       nombres: 'Ana María',
       apellidos: 'Muñoz',
@@ -73,9 +75,10 @@ describe('repositorios de donantes y consentimientos en Postgres', () => {
       actualizadoEn: FECHA_1,
     })
 
+    expect(registrado).toEqual({ id: UUID_2, existia: true })
     expect(consultas[0]?.sql).toBe('SET LOCAL ROLE proinserco_publico')
-    expect(consultas[1]?.sql).toContain('insert into "donantes"')
-    expect(consultas[1]?.sql).toContain('on conflict ("id") do update')
+    expect(consultas[1]?.sql).toContain('public.registrar_donante_publico(')
+    expect(consultas.some((c) => /insert into|update "donantes"/.test(c.sql))).toBe(false)
 
     consultas.length = 0
     expect(await repo.buscarPorId('no-es-uuid')).toBeNull()
@@ -177,7 +180,7 @@ describe('repositorios de donantes y consentimientos en Postgres', () => {
     )
   })
 
-  it('buscarPorDocumento usa modo público, guardar/insertar rechazan no-UUID sin tocar BD y listar ignora cursor con id no-UUID', async () => {
+  it('registrarSiNoExiste/insertar rechazan no-UUID sin tocar BD y listar ignora cursor con id no-UUID', async () => {
     const filaDonante = [
       UUID_1,
       'Ana',
@@ -198,13 +201,8 @@ describe('repositorios de donantes y consentimientos en Postgres', () => {
     obtenerDbMock.mockReturnValue(db)
 
     const repo = crearRepositorioDonantesPostgres()
-    const encontrado = await repo.buscarPorDocumento('CC', '1061000111')
-    expect(encontrado?.id).toBe(UUID_1)
-    expect(consultas[0]?.sql).toBe('SET LOCAL ROLE proinserco_publico')
-
-    consultas.length = 0
     await expect(
-      repo.guardar({
+      repo.registrarSiNoExiste({
         id: 'no-uuid' as DonanteId,
         nombres: 'Ana',
         apellidos: 'Muñoz',

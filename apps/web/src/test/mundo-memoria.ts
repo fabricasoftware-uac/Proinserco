@@ -9,6 +9,7 @@ import { type ConfiguracionDonaciones, crearCrearDonacion } from '@/modules/dona
 import { crearListarDonaciones } from '@/modules/donaciones/application/use-cases/listar-donaciones'
 import { crearObtenerDonacion } from '@/modules/donaciones/application/use-cases/obtener-donacion'
 import { crearObtenerIndicadores } from '@/modules/donaciones/application/use-cases/obtener-indicadores'
+import { crearPasarelaSimulada } from '@/modules/donaciones/infrastructure/pasarela-simulada'
 import { crearRepositorioDonacionesMemoria } from '@/modules/donaciones/infrastructure/repositorio-donaciones-memoria'
 import { crearListarDonantes } from '@/modules/donantes/application/use-cases/listar-donantes'
 import { crearObtenerDonante, crearRevelarDatoDonante } from '@/modules/donantes/application/use-cases/obtener-donante'
@@ -21,10 +22,10 @@ import {
 import { PERMISOS_POR_ROL, type Rol } from '@/modules/iam/domain/roles'
 import type { Auditor } from '@/shared/application/ports/auditor'
 import type { GeneradorIds } from '@/shared/application/ports/generador-ids'
+import type { Alerta, Notificador } from '@/shared/application/ports/notificador'
 import { Actor } from '@/shared/domain/actor'
 import { crearPublicadorEventosMemoria } from '@/shared/infrastructure/publicador-eventos-memoria'
 import { crearRelojFijo } from '@/shared/infrastructure/reloj'
-import { crearPasarelaSimulada } from './pasarela-simulada'
 
 export const AHORA = new Date('2026-11-16T15:00:00.000Z')
 
@@ -89,14 +90,22 @@ export function crearMundoMemoria(configuracion: Partial<ConfiguracionDonaciones
     },
   }
 
-  const repoDonaciones = crearRepositorioDonacionesMemoria()
+  const repoDonaciones = crearRepositorioDonacionesMemoria(reloj)
   const pasarela = crearPasarelaSimulada({ ids, urlBase: 'https://proinserco.test' })
   const conciliarDonacion = crearConciliarDonacion({ donaciones: repoDonaciones, pasarela, reloj, eventos, auditor })
+  const alertas: Alerta[] = []
+  const notificador: Notificador = {
+    async notificar(alerta) {
+      alertas.push(alerta)
+    },
+  }
   const conciliarPendientes = crearConciliarPendientes({
     donaciones: repoDonaciones,
     conciliar: conciliarDonacion,
+    pasarela,
     reloj,
     auditor,
+    notificador,
   })
   const crearDonacion = crearCrearDonacion({
     donaciones: repoDonaciones,
@@ -126,6 +135,7 @@ export function crearMundoMemoria(configuracion: Partial<ConfiguracionDonaciones
     crearDonacion,
     conciliarDonacion,
     conciliarPendientes,
+    alertas,
     consultarResultado: crearConsultarResultadoDonacion({
       donaciones: repoDonaciones,
       conciliar: conciliarDonacion,

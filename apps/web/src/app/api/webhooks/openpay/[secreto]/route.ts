@@ -31,8 +31,17 @@ const MAX_BYTES = 64 * 1024
 const Aviso = z.object({
   type: z.string().trim().min(1).max(80),
   verification_code: z.string().max(100).optional(),
-  transaction: z.object({ id: z.string().trim().min(1).max(100) }).optional(),
+  transaction: z
+    .object({
+      id: z.string().trim().min(1).max(100),
+      // Nuestra referencia (DON-…). Solo sirve para ENCONTRAR la donación si su idCargo no
+      // llegó a guardarse; el cargo se consulta a Openpay y su order_id debe coincidir.
+      order_id: z.string().trim().max(120).nullish(),
+    })
+    .optional(),
 })
+
+const PATRON_REFERENCIA = /^DON-[0-9A-HJKMNP-TV-Z]{21}$/
 
 const RESULTADOS_REINTENTABLES = new Set(['no_encontrada', 'sin_cargo', 'carrera_perdida'])
 
@@ -126,6 +135,8 @@ export async function POST(request: Request, context: { params: Promise<{ secret
 
   // 5. Idempotencia + consulta autoritativa a Openpay bajo rol de sistema.
   const idCargo = aviso.transaction.id
+  const referenciaAviso = aviso.transaction.order_id ?? ''
+  const referenciaRespaldo = PATRON_REFERENCIA.test(referenciaAviso) ? referenciaAviso : undefined
   const claveIdempotencia = `openpay:${idCargo}:${aviso.type}`
   const usarTablaIdempotencia = env.ADAPTADORES === 'real'
 
@@ -139,7 +150,7 @@ export async function POST(request: Request, context: { params: Promise<{ secret
         }
       }
 
-      const resultado = await donaciones.conciliarDonacion({ idCargo }, 'webhook')
+      const resultado = await donaciones.conciliarDonacion({ idCargo, referenciaRespaldo }, 'webhook')
       if (usarTablaIdempotencia) {
         await guardarResultadoWebhook(claveIdempotencia, formatearResultadoWebhook(resultado))
       }

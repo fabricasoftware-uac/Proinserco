@@ -1,3 +1,4 @@
+import type { Reloj } from '@/shared/application/ports/reloj'
 import { type ClaveCursor, paginarOrdenado } from '@/shared/domain/paginacion'
 import type { RepositorioDonaciones } from '../application/ports/repositorio-donaciones'
 import { type DatosDonacion, Donacion } from '../domain/donacion'
@@ -21,8 +22,10 @@ function compararClaves(a: ClaveCursor, b: ClaveCursor, dir: Dir): number {
  * Adaptador EN MEMORIA (demo y tests). Se pierde al reiniciar el proceso.
  * Guarda copias congeladas para que nadie mute el estado desde fuera.
  */
-export function crearRepositorioDonacionesMemoria(): RepositorioDonaciones {
+export function crearRepositorioDonacionesMemoria(reloj: Reloj = { ahora: () => new Date() }): RepositorioDonaciones {
   const filas = new Map<string, DatosDonacion>()
+  /** referencia → última consulta a la pasarela reservada (ms). */
+  const consultasPasarela = new Map<string, number>()
 
   const aDominio = (d: DatosDonacion) => Donacion.reconstruir(d)
   const buscar = (predicado: (d: DatosDonacion) => boolean) => {
@@ -69,7 +72,38 @@ export function crearRepositorioDonacionesMemoria(): RepositorioDonaciones {
     },
     buscarPorReferencia: async (referencia) => buscar((d) => d.referencia === referencia),
     buscarPorIdCargo: async (idCargo) => buscar((d) => d.idCargo === idCargo),
-    buscarPorClaveIdempotencia: async (clave) => buscar((d) => d.claveIdempotencia === clave),
+    async buscarIntentoPorClave(clave) {
+      for (const d of filas.values()) {
+        if (d.claveIdempotencia === clave) {
+          return { referencia: d.referencia, estado: d.estado, urlPago: d.estado === 'pendiente' ? d.urlPago : null }
+        }
+      }
+      return null
+    },
+    async buscarResumenPublico(referencia) {
+      for (const d of filas.values()) {
+        if (d.referencia === referencia) {
+          return {
+            referencia: d.referencia,
+            estado: d.estado,
+            importe: d.importe,
+            creadaEn: d.creadaEn,
+            quiereCertificado: d.quiereCertificado,
+          }
+        }
+      }
+      return null
+    },
+    async reservarConsultaPasarela(referencia, intervaloSegundos) {
+      const d = [...filas.values()].find((f) => f.referencia === referencia)
+      if (!d || (d.estado !== 'creada' && d.estado !== 'pendiente')) return false
+      const ahora = reloj.ahora().getTime()
+      const intervaloMs = Math.min(Math.max(intervaloSegundos, 5), 3600) * 1000
+      const ultima = consultasPasarela.get(referencia)
+      if (ultima !== undefined && ahora - ultima < intervaloMs) return false
+      consultasPasarela.set(referencia, ahora)
+      return true
+    },
     async listar(filtros, paginacion) {
       const orden: Orden = filtros.orden ?? 'fecha'
       const dir: Dir = filtros.dir ?? 'desc'

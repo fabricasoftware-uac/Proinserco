@@ -4,18 +4,25 @@ import { notFound } from 'next/navigation'
 import { ReintentoConsulta } from '@/flujos/donar/reintento-consulta'
 import { CONTENIDO_SITIO } from '@/modules/contenido'
 import { obtenerContenedor } from '@/server/container'
+import { contextoPeticion } from '@/server/contexto-peticion'
 import { ejecutarConContextoDb } from '@/server/db/contexto-db'
-import { NoEncontrado } from '@/shared/domain/errores'
+import { DemasiadasPeticiones, NoEncontrado } from '@/shared/domain/errores'
 import { formatearPesos } from '@/shared/lib/formato-moneda'
 
 export const metadata: Metadata = { title: 'Resultado de tu donación', robots: { index: false, follow: false } }
 
 const FORMATO_FECHA = new Intl.DateTimeFormat('es-CO', { dateStyle: 'long', timeStyle: 'short', timeZone: 'America/Bogota' })
 
+/** Consultas por IP a esta página (la página pendiente se refresca sola cada pocos segundos). */
+const LIMITE_CONSULTAS_POR_IP = 60
+const VENTANA_CONSULTAS_SEGUNDOS = 300
+
 /**
- * Lee el estado desde NUESTRO servidor (y concilia con la pasarela si sigue
- * pendiente). Cualquier parámetro que añada la pasarela a la URL (status,
- * id…) se ignora: volver aquí no confirma nada.
+ * Lee el estado desde NUESTRO servidor con el rol PÚBLICO acotado (una donación por
+ * referencia, sin datos personales) y, si sigue pendiente, concilia con la pasarela
+ * como mucho una vez cada N segundos por donación. Límite de tasa por IP.
+ * Cualquier parámetro que añada la pasarela a la URL (status, id…) se ignora:
+ * volver aquí no confirma nada.
  */
 export default async function PaginaResultadoDonacion({
   searchParams,
@@ -23,8 +30,15 @@ export default async function PaginaResultadoDonacion({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   const { referencia } = await searchParams
-  const { donaciones } = await obtenerContenedor()
-  const resultado = await ejecutarConContextoDb({ modo: 'sistema' }, () => donaciones.consultarResultado(referencia)).catch(
+  const { donaciones, transversal } = await obtenerContenedor()
+  const { ip } = await contextoPeticion()
+  const limite = await transversal.limitador.consumir(
+    `resultado-donacion:ip:${ip}`,
+    LIMITE_CONSULTAS_POR_IP,
+    VENTANA_CONSULTAS_SEGUNDOS,
+  )
+  if (!limite.permitido) throw new DemasiadasPeticiones(limite.reintentarEnSegundos)
+  const resultado = await ejecutarConContextoDb({ modo: 'publico' }, () => donaciones.consultarResultado(referencia)).catch(
     (e: unknown) => {
       if (e instanceof NoEncontrado) notFound()
       throw e

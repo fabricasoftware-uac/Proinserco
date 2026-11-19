@@ -42,6 +42,7 @@ const ACCIONES_AUDITORIA = [
   'donantes.exportados',
   'consentimiento.registrado',
   'ajustes.cambiados',
+  'conciliacion.alerta',
 ] as const
 const ROLES_PANEL = ['administrador', 'consulta'] as const
 
@@ -220,7 +221,7 @@ export const auditoria = pgTable(
     index('auditoria_actor_ocurrido_idx').on(t.actorId, t.ocurridoEn.desc(), t.id.desc()),
     check(
       'auditoria_accion_chk',
-      sql`${t.accion} IN ('sesion.iniciada', 'sesion.fallida', 'sesion.mfa_fallido', 'sesion.cerrada', 'donacion.creada', 'donacion.transicion', 'donacion.discrepancia', 'donacion.consultada', 'donaciones.exportadas', 'donante.registrado', 'donante.dato_revelado', 'donantes.exportados', 'consentimiento.registrado', 'ajustes.cambiados')`,
+      sql`${t.accion} IN ('sesion.iniciada', 'sesion.fallida', 'sesion.mfa_fallido', 'sesion.cerrada', 'donacion.creada', 'donacion.transicion', 'donacion.discrepancia', 'donacion.consultada', 'donaciones.exportadas', 'donante.registrado', 'donante.dato_revelado', 'donantes.exportados', 'consentimiento.registrado', 'ajustes.cambiados', 'conciliacion.alerta')`,
     ),
     check('auditoria_actor_id_chk', sql`char_length(btrim(${t.actorId})) BETWEEN 1 AND 80`),
     check('auditoria_recurso_chk', sql`char_length(btrim(${t.recurso})) BETWEEN 1 AND 60`),

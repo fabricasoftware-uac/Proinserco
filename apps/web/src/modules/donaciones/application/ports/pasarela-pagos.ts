@@ -8,7 +8,13 @@ export type CargoConsultado = Readonly<{
   /** Nuestra referencia, tal como la devuelve la pasarela (order_id). */
   referencia: string
   estado: EstadoCargo
-  importe: Importe
+  /**
+   * Importe tal como lo reporta la pasarela. `null` si reporta una moneda que no
+   * manejamos: la conciliación lo trata como DISCREPANCIA (auditada, sin cambiar estado).
+   */
+  importe: Importe | null
+  /** Moneda tal como la reporta la pasarela (ISO 4217, sin validar). */
+  monedaReportada: string
   /** Ej. 'tarjeta', 'pse'. Nunca datos de tarjeta. */
   metodoPago: string | null
 }>
@@ -31,4 +37,11 @@ export interface PasarelaPagos {
   crearCargo(solicitud: SolicitudCargo): Promise<{ idCargo: string; urlPago: string }>
   /** Estado REAL del cargo consultado con la llave privada. Lo único que cambia estados. */
   consultarCargo(idCargo: string): Promise<CargoConsultado>
+  /**
+   * Busca el cargo creado con nuestra referencia (`order_id`). Sirve para recuperar
+   * donaciones cuyo cargo se creó pero cuyo `idCargo` no llegó a guardarse. `null` si no existe.
+   */
+  buscarCargoPorReferencia(referencia: string): Promise<CargoConsultado | null>
+  /** Cargos creados en [desde, hasta] (cruce diario con nuestra base). */
+  listarCargos(rango: Readonly<{ desde: Date; hasta: Date }>): Promise<readonly CargoConsultado[]>
 }

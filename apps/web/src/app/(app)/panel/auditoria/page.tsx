@@ -34,6 +34,7 @@ const ETIQUETA: Readonly<Record<AccionAuditable, { texto: string; tono: Tono }>>
   'donantes.exportados': { texto: 'Exportación de donantes', tono: 'aviso' },
   'consentimiento.registrado': { texto: 'Consentimiento registrado', tono: 'info' },
   'ajustes.cambiados': { texto: 'Ajustes cambiados', tono: 'aviso' },
+  'conciliacion.alerta': { texto: 'Alerta de conciliación', tono: 'malo' },
 }
 
 const etiquetaAccion = (accion: string) => ETIQUETA[accion as AccionAuditable] ?? { texto: accion, tono: 'neutro' as const }

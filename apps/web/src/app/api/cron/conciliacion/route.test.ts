@@ -23,7 +23,7 @@ vi.mock('@/server/db/contexto-db', async () => {
   }
 })
 
-import { POST } from './route'
+import { GET, POST } from './route'
 
 const SECRETO = 'c'.repeat(32)
 
@@ -44,6 +44,7 @@ describe('POST /api/cron/conciliacion', () => {
       expiradas: 1,
       discrepancias: 0,
       errores: 0,
+      cargosCruzados: 3,
     })
     obtenerEnvMock.mockReturnValue({
       DESPLIEGUE: 'directo',
@@ -84,7 +85,23 @@ describe('POST /api/cron/conciliacion', () => {
       expiradas: 1,
       discrepancias: 0,
       errores: 0,
+      cargosCruzados: 3,
     })
+  })
+
+  it('GET (Vercel Cron) exige el mismo Bearer y tiene el mismo efecto que POST', async () => {
+    const sinAuth = new Request('https://proinserco.test/api/cron/conciliacion', { method: 'GET' })
+    expect((await GET(sinAuth)).status).toBe(401)
+    expect(conciliarPendientes).not.toHaveBeenCalled()
+
+    const conAuth = new Request('https://proinserco.test/api/cron/conciliacion', {
+      method: 'GET',
+      headers: { authorization: `Bearer ${SECRETO}` },
+    })
+    const r = await GET(conAuth)
+    expect(r.status).toBe(200)
+    expect(conciliarPendientes).toHaveBeenCalledTimes(1)
+    expect(obtenerContextoDbMock).toHaveBeenCalledWith({ modo: 'sistema' })
   })
 
   it('responde 500 genérico sin filtrar detalles internos ni secretos si conciliarPendientes lanza error', async () => {

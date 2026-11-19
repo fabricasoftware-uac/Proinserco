@@ -4,7 +4,6 @@ import { crearRegistrarAuditoria } from '@/modules/auditoria/application/use-cas
 import { crearRegistroAuditoriaMemoria } from '@/modules/auditoria/infrastructure/registro-auditoria-memoria'
 import { crearRegistroAuditoriaPostgres } from '@/modules/auditoria/infrastructure/registro-auditoria-postgres'
 import { CONTENIDO_SITIO } from '@/modules/contenido'
-import type { PasarelaPagos } from '@/modules/donaciones/application/ports/pasarela-pagos'
 import type { RegistroDeDonantes } from '@/modules/donaciones/application/ports/registro-de-donantes'
 import { crearConciliarDonacion } from '@/modules/donaciones/application/use-cases/conciliar-donacion'
 import { crearConciliarPendientes } from '@/modules/donaciones/application/use-cases/conciliar-pendientes'
@@ -14,6 +13,7 @@ import { crearListarDonaciones } from '@/modules/donaciones/application/use-case
 import { crearObtenerDonacion } from '@/modules/donaciones/application/use-cases/obtener-donacion'
 import { crearObtenerIndicadores } from '@/modules/donaciones/application/use-cases/obtener-indicadores'
 import { crearPasarelaOpenpay } from '@/modules/donaciones/infrastructure/pasarela-openpay'
+import { crearPasarelaSimulada, type PasarelaSimulada } from '@/modules/donaciones/infrastructure/pasarela-simulada'
 import { crearRepositorioDonacionesMemoria } from '@/modules/donaciones/infrastructure/repositorio-donaciones-memoria'
 import { crearRepositorioDonacionesPostgres } from '@/modules/donaciones/infrastructure/repositorio-donaciones-postgres'
 import { crearContarDonantes, crearListarDonantes } from '@/modules/donantes/application/use-cases/listar-donantes'
@@ -34,16 +34,22 @@ import { crearObtenerActor } from '@/modules/iam/application/use-cases/obtener-a
 import { crearVerificarSegundoFactor } from '@/modules/iam/application/use-cases/verificar-segundo-factor'
 import { crearIdentityProviderMemoria } from '@/modules/iam/infrastructure/identity-provider-memoria'
 import { crearIdentityProviderSupabase } from '@/modules/iam/infrastructure/identity-provider-supabase'
+import { usuariosDemo } from '@/modules/iam/infrastructure/usuarios-demo'
 import type { Auditor } from '@/shared/application/ports/auditor'
+import type { Notificador } from '@/shared/application/ports/notificador'
+import { ACCION_TURNSTILE_DONAR } from '@/shared/domain/antibots'
 import { NoImplementado } from '@/shared/domain/errores'
 import { crearGeneradorIdsCripto } from '@/shared/infrastructure/generador-ids-cripto'
 import { crearLimitadorMemoria } from '@/shared/infrastructure/limitador-memoria'
 import { crearLimitadorRedis } from '@/shared/infrastructure/limitador-redis'
+import { crearNotificadorCompuesto, crearNotificadorRegistro } from '@/shared/infrastructure/notificador-registro'
+import { crearNotificadorWebhook } from '@/shared/infrastructure/notificador-webhook'
 import { crearPublicadorEventosMemoria } from '@/shared/infrastructure/publicador-eventos-memoria'
 import { crearRelojSistema } from '@/shared/infrastructure/reloj'
 import { crearVerificadorAntiBotsMemoria } from '@/shared/infrastructure/verificador-anti-bots-memoria'
 import { crearVerificadorTurnstile } from '@/shared/infrastructure/verificador-turnstile'
-import { type Env, obtenerEnv } from './env'
+import { ejecutarConContextoDb } from './db/contexto-db'
+import { type Env, esServerless, obtenerEnv } from './env'
 import { nombresCookies } from './nombres-cookies'
 import { registro } from './registro'
 
@@ -54,6 +60,10 @@ import { registro } from './registro'
  */
 function crearContenedor(env: Env) {
   const esMemoria = env.ADAPTADORES === 'memoria'
+  // Pasarela simulada y usuarios demo: SOLO memoria fuera de producción. Una demo pública
+  // autorizada (ADAPTADORES_MEMORIA_EN_PRODUCCION=si) arranca sin pagos ni accesos falsos.
+  // Además, sus fábricas lanzan si se instancian con NODE_ENV=production (doble cerrojo).
+  const conPiezasDemo = esMemoria && env.NODE_ENV !== 'production'
   const reloj = crearRelojSistema()
   const ids = crearGeneradorIdsCripto()
   const eventos = crearPublicadorEventosMemoria((error, evento) =>
@@ -69,7 +79,9 @@ function crearContenedor(env: Env) {
       ? crearVerificadorTurnstile({
           secreto: env.TURNSTILE_SECRET_KEY,
           hostnameEsperado: env.hostname,
-          alFallar: (motivo) => registro.advertencia('Turnstile no respondió', { motivo }),
+          accionEsperada: ACCION_TURNSTILE_DONAR,
+          limitador,
+          alFallar: (motivo) => registro.advertencia('Verificación Turnstile fallida', { motivo }),
         })
       : crearVerificadorAntiBotsMemoria()
 
@@ -91,17 +103,18 @@ function crearContenedor(env: Env) {
   })
 
   // ─── donaciones ───
-  const repoDonaciones = esMemoria ? crearRepositorioDonacionesMemoria() : crearRepositorioDonacionesPostgres()
-  const pasarelaNoConfigurada: PasarelaPagos = {
-    async crearCargo() {
-      throw new NoImplementado('Pasarela simulada retirada: configura ADAPTADORES=real con Openpay')
-    },
-    async consultarCargo() {
-      throw new NoImplementado('Pasarela simulada retirada: configura ADAPTADORES=real con Openpay')
-    },
+  const repoDonaciones = esMemoria ? crearRepositorioDonacionesMemoria(reloj) : crearRepositorioDonacionesPostgres()
+  const pasarelaSimulada: PasarelaSimulada | null = conPiezasDemo ? crearPasarelaSimulada({ ids, urlBase: env.APP_URL }) : null
+  const sinPasarela = () => {
+    throw new NoImplementado('Sin pasarela: demo en memoria en producción. Configura ADAPTADORES=real con Openpay')
   }
   const pasarela = esMemoria
-    ? pasarelaNoConfigurada
+    ? (pasarelaSimulada ?? {
+        crearCargo: async () => sinPasarela(),
+        consultarCargo: async () => sinPasarela(),
+        buscarCargoPorReferencia: async () => sinPasarela(),
+        listarCargos: async () => sinPasarela(),
+      })
     : crearPasarelaOpenpay({
         merchantId: env.OPENPAY_MERCHANT_ID ?? '',
         llavePrivada: env.OPENPAY_PRIVATE_KEY ?? '',
@@ -117,18 +130,30 @@ function crearContenedor(env: Env) {
     },
   }
   const conciliarDonacion = crearConciliarDonacion({ donaciones: repoDonaciones, pasarela, reloj, eventos, auditor })
+  // Alertas: siempre al log; además a un webhook (chat, relay de correo) si se configura.
+  const canalesAlerta: Notificador[] = [crearNotificadorRegistro(registro)]
+  if (env.ALERTAS_WEBHOOK_URL) {
+    canalesAlerta.push(
+      crearNotificadorWebhook({
+        url: env.ALERTAS_WEBHOOK_URL,
+        alFallar: (motivo) => registro.error('No se pudo enviar la alerta al webhook', { motivo }),
+      }),
+    )
+  }
+  const notificador = crearNotificadorCompuesto(canalesAlerta)
   const conciliarPendientes = crearConciliarPendientes({
     donaciones: repoDonaciones,
     conciliar: conciliarDonacion,
+    pasarela,
     reloj,
     auditor,
-    alAlertar: (resumen) => registro.advertencia('Conciliación diaria con discrepancias o errores', resumen),
+    notificador,
   })
 
   // ─── iam ───
   const cookies = nombresCookies(env.esHttps)
   const identidad = esMemoria
-    ? crearIdentityProviderMemoria([], reloj, {
+    ? crearIdentityProviderMemoria(conPiezasDemo ? usuariosDemo() : [], reloj, {
         secreto: env.SESION_SECRETO,
         cookiesSeguras: env.esHttps,
         nombreCookieSesion: cookies.sesion,
@@ -150,6 +175,8 @@ function crearContenedor(env: Env) {
 
   const contenedor = {
     modo: env.ADAPTADORES,
+    /** Solo con ADAPTADORES=memoria fuera de producción (página /donar/pasarela-simulada). */
+    pasarelaSimulada,
     transversal: { reloj, limitador, verificadorAntiBots, auditor },
     donaciones: {
       crearDonacion: crearCrearDonacion({
@@ -170,7 +197,9 @@ function crearContenedor(env: Env) {
       conciliarPendientes,
       consultarResultado: crearConsultarResultadoDonacion({
         donaciones: repoDonaciones,
-        conciliar: conciliarDonacion,
+        // La página de resultado lee con el rol PÚBLICO acotado; solo la conciliación
+        // (consulta autoritativa a la pasarela, ya limitada por donación) usa el de sistema.
+        conciliar: (id, origen) => ejecutarConContextoDb({ modo: 'sistema' }, () => conciliarDonacion(id, origen)),
         registrarFallo: (error) => registro.error('Conciliación fallida en la página de resultado', { error }),
       }),
       listarDonaciones: crearListarDonaciones({ donaciones: repoDonaciones }),
@@ -214,9 +243,14 @@ export function obtenerContenedor(): Promise<Contenedor> {
     const env = obtenerEnv()
     const contenedor = crearContenedor(env)
     if (env.ADAPTADORES === 'memoria') {
-      registro.advertencia('Adaptadores EN MEMORIA: repositorios vacíos sin usuarios ni pasarela de pagos')
+      registro.advertencia(
+        contenedor.pasarelaSimulada
+          ? 'Adaptadores EN MEMORIA (desarrollo): pasarela simulada y usuarios demo activos'
+          : 'Adaptadores EN MEMORIA en producción: sin usuarios ni pasarela de pagos',
+      )
     }
-    if (env.ADAPTADORES === 'real' && !env.LIMITADOR_URL) {
+    // env.ts ya hace fallar el arranque en serverless sin LIMITADOR_URL; aquí solo queda el VPS.
+    if (env.ADAPTADORES === 'real' && !env.LIMITADOR_URL && !esServerless(env)) {
       registro.advertencia('Limitador de tasa en memoria: válido solo con UNA instancia de la app')
     }
     return contenedor

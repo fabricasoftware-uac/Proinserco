@@ -7,8 +7,8 @@ import * as schema from '@/server/db/schema'
 import { DemasiadasPeticiones } from '@/shared/domain/errores'
 import { crearRelojFijo } from '@/shared/infrastructure/reloj'
 import type { AlmacenCookies } from '../application/ports/almacen-cookies'
-import { CodigoMfaInvalido, CredencialesInvalidas, DesafioMfaExpirado } from '../domain/errores'
-import { crearIdentityProviderSupabase } from './identity-provider-supabase'
+import { AccesoNoActivado, CodigoMfaInvalido, CredencialesInvalidas, DesafioMfaExpirado } from '../domain/errores'
+import { crearIdentityProviderSupabase, retardoPorCorreoMs } from './identity-provider-supabase'
 
 type Consulta = { sql: string; params: unknown[] }
 
@@ -84,7 +84,7 @@ describe('crearIdentityProviderSupabase', () => {
     })
   })
 
-  function crearProvider(reloj = crearRelojFijo(AHORA)) {
+  function crearProvider(reloj = crearRelojFijo(AHORA), esperar: (ms: number) => Promise<void> = async () => undefined) {
     return crearIdentityProviderSupabase({
       url: 'https://proj.supabase.co',
       claveAnonima: 'anon-key',
@@ -96,46 +96,107 @@ describe('crearIdentityProviderSupabase', () => {
       inactividadMinutos: 30,
       duracionMaximaHoras: 8,
       reloj,
+      esperar,
     })
   }
 
-  it('iniciarSesion aplica bloqueo progresivo en bloqueos_acceso y lanza CredencialesInvalidas sin revelar usuario', async () => {
+  it('iniciarSesion: bloqueo DURO por correo + IP (otra IP no queda bloqueada) y CredencialesInvalidas sin revelar usuario', async () => {
     const futuro = new Date(AHORA.getTime() + 45_000)
     const correo = 'admin@proinserco.test'
-    const hashEsperado = createHash('sha256').update(correo).digest('hex')
+    const hashCorreo = createHash('sha256').update(correo).digest('hex')
+    const hashCorreoIpAtacante = createHash('sha256').update(`${correo}|198.51.100.7`).digest('hex')
 
-    const { db, consultas } = crearDbInstrumentada((sql) => {
-      if (sql.includes('from "bloqueos_acceso"')) return [[null]]
-      return []
-    })
+    const { db, consultas } = crearDbInstrumentada(() => [])
     obtenerDbMock.mockReturnValue(db)
     authMock.signInWithPassword.mockResolvedValue({ data: { user: null }, error: { message: 'Invalid login' } })
 
     const provider = crearProvider()
-    await expect(provider.iniciarSesion({ correo, contrasena: 'clave-muy-larga-123' }, crearCookies())).rejects.toThrow(
-      CredencialesInvalidas,
-    )
+    await expect(
+      provider.iniciarSesion({ correo, contrasena: 'clave-muy-larga-123' }, crearCookies(), { ip: '198.51.100.7' }),
+    ).rejects.toThrow(CredencialesInvalidas)
 
-    const insertBloqueo = consultas.find((c) => c.sql.includes('insert into "bloqueos_acceso"'))
-    expect(insertBloqueo?.params).toContain(hashEsperado)
-    expect(insertBloqueo?.sql).toContain('on conflict ("identificador_hash") do update')
+    const inserts = consultas.filter((c) => c.sql.includes('insert into "bloqueos_acceso"'))
+    expect(inserts).toHaveLength(2)
+    expect(inserts[0]?.params).toContain(hashCorreoIpAtacante)
+    expect(inserts[0]?.sql).toContain('::timestamptz')
+    expect(inserts[1]?.params).toContain(hashCorreo)
+    // El contador por correo nunca fija bloqueado_hasta: solo sirve para el retardo.
+    expect(inserts[1]?.sql).toContain('"bloqueado_hasta" = NULL::timestamptz')
 
-    // Si existe bloqueo vigente, lanza DemasiadasPeticiones antes de llamar a Supabase Auth
-    const { db: dbBloqueado } = crearDbInstrumentada(() => [[futuro.toISOString()]])
+    // Bloqueo vigente para (correo, IP del atacante): rechaza antes de llamar a Supabase Auth.
+    const { db: dbBloqueado } = crearDbInstrumentada(() => [[hashCorreoIpAtacante, futuro.toISOString(), 5, AHORA.toISOString()]])
     obtenerDbMock.mockReturnValue(dbBloqueado)
     authMock.signInWithPassword.mockClear()
-
-    await expect(provider.iniciarSesion({ correo, contrasena: 'clave-muy-larga-123' }, crearCookies())).rejects.toThrow(
-      DemasiadasPeticiones,
-    )
+    await expect(
+      provider.iniciarSesion({ correo, contrasena: 'clave-muy-larga-123' }, crearCookies(), { ip: '198.51.100.7' }),
+    ).rejects.toThrow(DemasiadasPeticiones)
     expect(authMock.signInWithPassword).not.toHaveBeenCalled()
   })
 
-  it('iniciarSesion enrola TOTP si no hay factor verificado, limpia unverified previos y guarda factorId en cookie firmada', async () => {
+  it('iniciarSesion: desde otra IP el administrador NO queda bloqueado; solo sufre el retardo por correo', async () => {
+    const correo = 'admin@proinserco.test'
+    const hashCorreo = createHash('sha256').update(correo).digest('hex')
+    // 5 fallos recientes contra este correo (desde cualquier IP), sin fila para la IP del administrador.
+    const { db } = crearDbInstrumentada(() => [[hashCorreo, null, 5, AHORA.toISOString()]])
+    obtenerDbMock.mockReturnValue(db)
+    authMock.signInWithPassword.mockResolvedValue({ data: { user: { id: USER_ID, email: correo } }, error: null })
+    authMock.mfa.listFactors.mockResolvedValue({
+      data: {
+        all: [{ id: FACTOR_VERIFICADO, factor_type: 'totp', status: 'verified' }],
+        totp: [{ id: FACTOR_VERIFICADO, status: 'verified' }],
+      },
+      error: null,
+    })
+    const esperar = vi.fn(async () => undefined)
+
+    const provider = crearProvider(crearRelojFijo(AHORA), esperar)
+    await expect(
+      provider.iniciarSesion({ correo, contrasena: 'clave-muy-larga-123' }, crearCookies(), { ip: '203.0.113.20' }),
+    ).resolves.toEqual({ usuarioId: USER_ID })
+    expect(esperar).toHaveBeenCalledWith(4_000)
+  })
+
+  it('retardoPorCorreoMs crece a partir del tercer fallo, tiene tope y caduca con la ventana', () => {
+    const hace = (min: number) => new Date(AHORA.getTime() - min * 60_000)
+    expect(retardoPorCorreoMs(2, hace(1), AHORA)).toBe(0)
+    expect(retardoPorCorreoMs(3, hace(1), AHORA)).toBe(1_000)
+    expect(retardoPorCorreoMs(4, hace(1), AHORA)).toBe(2_000)
+    expect(retardoPorCorreoMs(50, hace(1), AHORA)).toBe(4_000)
+    expect(retardoPorCorreoMs(50, hace(16), AHORA)).toBe(0)
+  })
+
+  it('iniciarSesion SIN factor TOTP verificado NO enrola: cierra la sesión y lanza AccesoNoActivado', async () => {
+    const { db } = crearDbInstrumentada(() => [])
+    obtenerDbMock.mockReturnValue(db)
+    const provider = crearProvider()
+    const cookies = crearCookies()
+    cookies.mapa.set('__Host-proinserco_sesion.0', 'token-aal1')
+
+    authMock.signInWithPassword.mockResolvedValue({
+      data: { user: { id: USER_ID, email: 'admin@proinserco.test' } },
+      error: null,
+    })
+    authMock.mfa.listFactors.mockResolvedValue({
+      data: { all: [{ id: FACTOR_VIEJO, factor_type: 'totp', status: 'unverified' }], totp: [] },
+      error: null,
+    })
+
+    const intento = provider.iniciarSesion({ correo: 'admin@proinserco.test', contrasena: 'clave-muy-larga-123' }, cookies, {
+      ip: '192.0.2.1',
+    })
+    await expect(intento).rejects.toThrow(AccesoNoActivado)
+    await expect(intento).rejects.toThrow('Pide al administrador que active tu acceso')
+    expect(authMock.mfa.enroll).not.toHaveBeenCalled()
+    expect(authMock.mfa.unenroll).not.toHaveBeenCalled()
+    expect(authMock.signOut).toHaveBeenCalledWith({ scope: 'local' })
+    expect(cookies.mapa.has('__Host-proinserco_sesion.0')).toBe(false)
+    expect(cookies.mapa.has('__Host-proinserco_mfa')).toBe(false)
+  })
+
+  it('iniciarSesion con TOTP verificado deja el desafío; verificarSegundoFactor usa SOLO el factor verificado', async () => {
     const { db, consultas } = crearDbInstrumentada(() => [])
     obtenerDbMock.mockReturnValue(db)
-    const reloj = crearRelojFijo(AHORA)
-    const provider = crearProvider(reloj)
+    const provider = crearProvider()
     const cookies = crearCookies()
 
     authMock.signInWithPassword.mockResolvedValue({
@@ -144,44 +205,24 @@ describe('crearIdentityProviderSupabase', () => {
     })
     authMock.mfa.listFactors.mockResolvedValue({
       data: {
-        all: [{ id: FACTOR_VIEJO, factor_type: 'totp', status: 'unverified' }],
-        totp: [],
-      },
-      error: null,
-    })
-    authMock.mfa.unenroll.mockResolvedValue({ data: { id: FACTOR_VIEJO }, error: null })
-    authMock.mfa.enroll.mockResolvedValue({
-      data: {
-        id: FACTOR_ENROLADO,
-        type: 'totp',
-        totp: { qr_code: '<svg/>', secret: 'JBSWY3DPEHPK3PXP', uri: 'otpauth://totp/Proinserco' },
+        all: [
+          { id: FACTOR_ENROLADO, factor_type: 'totp', status: 'unverified' },
+          { id: FACTOR_VERIFICADO, factor_type: 'totp', status: 'verified' },
+        ],
+        totp: [{ id: FACTOR_VERIFICADO, factor_type: 'totp', status: 'verified' }],
       },
       error: null,
     })
 
-    const res = await provider.iniciarSesion({ correo: 'admin@proinserco.test', contrasena: 'clave-muy-larga-123' }, cookies)
-
+    const res = await provider.iniciarSesion({ correo: 'admin@proinserco.test', contrasena: 'clave-muy-larga-123' }, cookies, {
+      ip: '192.0.2.1',
+    })
+    expect(res).toEqual({ usuarioId: USER_ID })
     expect(consultas.some((c) => c.sql.includes('delete from "bloqueos_acceso"'))).toBe(true)
-    expect(authMock.mfa.unenroll).toHaveBeenCalledWith({ factorId: FACTOR_VIEJO })
-    expect(authMock.mfa.enroll).toHaveBeenCalledWith({ factorType: 'totp', friendlyName: 'Panel Proinserco' })
-    expect(cookies.mapa.has('__Host-proinserco_mfa')).toBe(true)
-    expect(res).toEqual({
-      usuarioId: USER_ID,
-      enrolamientoMfa: {
-        factorId: FACTOR_ENROLADO,
-        qrSvg: '<svg/>',
-        secreto: 'JBSWY3DPEHPK3PXP',
-        uri: 'otpauth://totp/Proinserco',
-      },
-    })
+    expect(authMock.mfa.enroll).not.toHaveBeenCalled()
 
-    // Ahora verifica el segundo factor usando ese factor enrolado en la cookie firmada
     authMock.getUser.mockResolvedValue({
       data: { user: { id: USER_ID, email: 'admin@proinserco.test', user_metadata: { rol: 'consulta' } } },
-      error: null,
-    })
-    authMock.mfa.listFactors.mockResolvedValue({
-      data: { all: [{ id: FACTOR_ENROLADO, factor_type: 'totp', status: 'unverified' }], totp: [] },
       error: null,
     })
     authMock.mfa.challengeAndVerify.mockResolvedValue({ data: {}, error: null })
@@ -193,13 +234,12 @@ describe('crearIdentityProviderSupabase', () => {
       data: { currentLevel: 'aal2', nextLevel: 'aal2', currentAuthenticationMethods: [] },
       error: null,
     })
-
     const { db: dbPerfil } = crearDbInstrumentada((sql) => (sql.includes('from "perfiles"') ? [['Ana Muñoz']] : []))
     obtenerDbMock.mockReturnValue(dbPerfil)
 
     const identidad = await provider.verificarSegundoFactor('123456', cookies)
 
-    expect(authMock.mfa.challengeAndVerify).toHaveBeenCalledWith({ factorId: FACTOR_ENROLADO, code: '123456' })
+    expect(authMock.mfa.challengeAndVerify).toHaveBeenCalledWith({ factorId: FACTOR_VERIFICADO, code: '123456' })
     expect(cookies.mapa.has('__Host-proinserco_mfa')).toBe(false)
     expect(cookies.mapa.has('__Host-proinserco_actividad')).toBe(true)
     expect(identidad).toMatchObject({
@@ -250,7 +290,7 @@ describe('crearIdentityProviderSupabase', () => {
       error: null,
     })
 
-    await provider.iniciarSesion({ correo: 'admin@proinserco.test', contrasena: 'clave-muy-larga-123' }, cookies)
+    await provider.iniciarSesion({ correo: 'admin@proinserco.test', contrasena: 'clave-muy-larga-123' }, cookies, { ip: null })
     await provider.verificarSegundoFactor('654321', cookies)
 
     // Rol viene de app_metadata ('consulta'), jamás de user_metadata ('administrador')
@@ -326,7 +366,7 @@ describe('crearIdentityProviderSupabase', () => {
     expect(cookies.mapa.get('otra_cookie')).toBe('conservar')
   })
 
-  it('rechaza cookie de enrolamiento caducada, cookie de actividad manipulada y borra cookie en setAll cuando maxAge=0', async () => {
+  it('nunca verifica contra un factor sin verificar, rechaza cookie de actividad manipulada y borra cookie en setAll cuando maxAge=0', async () => {
     const { db } = crearDbInstrumentada(() => [])
     obtenerDbMock.mockReturnValue(db)
 
@@ -342,19 +382,12 @@ describe('crearIdentityProviderSupabase', () => {
       data: { all: [], totp: [] },
       error: null,
     })
-    authMock.mfa.enroll.mockResolvedValue({
-      data: {
-        id: FACTOR_ENROLADO,
-        type: 'totp',
-        totp: { qr_code: '<svg/>', secret: 'SECRET', uri: 'otpauth://totp/Proinserco' },
-      },
-      error: null,
-    })
+    await expect(
+      provider.iniciarSesion({ correo: 'admin@proinserco.test', contrasena: 'clave-muy-larga-123' }, cookies, { ip: null }),
+    ).rejects.toThrow(AccesoNoActivado)
 
-    await provider.iniciarSesion({ correo: 'admin@proinserco.test', contrasena: 'clave-muy-larga-123' }, cookies)
-
-    // Avanza > 5 min -> cookie de enrolamiento caducada
-    reloj.avanzar(6 * 60_000)
+    // Aunque exista un factor sin verificar (p. ej. creado por un atacante), no se usa.
+    reloj.avanzar(60_000)
     authMock.getUser.mockResolvedValue({ data: { user: { id: USER_ID, email: 'admin@proinserco.test' } }, error: null })
     authMock.mfa.listFactors.mockResolvedValue({
       data: { all: [{ id: FACTOR_ENROLADO, factor_type: 'totp', status: 'unverified' }], totp: [] },
@@ -421,7 +454,7 @@ describe('crearIdentityProviderSupabase', () => {
       error: null,
     })
 
-    await provider.iniciarSesion({ correo: 'admin@proinserco.test', contrasena: 'clave-muy-larga-123' }, cookies)
+    await provider.iniciarSesion({ correo: 'admin@proinserco.test', contrasena: 'clave-muy-larga-123' }, cookies, { ip: null })
     await provider.verificarSegundoFactor('123456', cookies)
 
     // Avanza en pasos de 20 minutos (sin superar 30 min de inactividad) hasta pasar 8 horas absolutas

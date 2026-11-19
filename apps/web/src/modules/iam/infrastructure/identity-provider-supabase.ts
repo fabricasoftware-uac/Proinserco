@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { createServerClient } from '@supabase/ssr'
 import type { User } from '@supabase/supabase-js'
-import { eq, sql } from 'drizzle-orm'
+import { eq, inArray, sql } from 'drizzle-orm'
 import { esUuidValido } from '@/server/db/consultas'
 import { conTransaccionDb } from '@/server/db/contexto-db'
 import { bloqueosAcceso, perfiles } from '@/server/db/schema'
@@ -12,7 +12,7 @@ import { DemasiadasPeticiones } from '@/shared/domain/errores'
 import { crearRelojSistema } from '@/shared/infrastructure/reloj'
 import type { AlmacenCookies, OpcionesCookie } from '../application/ports/almacen-cookies'
 import type { IdentityProvider } from '../application/ports/identity-provider'
-import { CodigoMfaInvalido, CredencialesInvalidas, DesafioMfaExpirado } from '../domain/errores'
+import { AccesoNoActivado, CodigoMfaInvalido, CredencialesInvalidas, DesafioMfaExpirado } from '../domain/errores'
 import type { Identidad } from '../domain/identidad'
 import { Rol } from '../domain/roles'
 import { crearFirmador } from './firma-tokens'
@@ -23,6 +23,9 @@ const HORAS_MAXIMAS_POR_DEFECTO = 8
 const SEGUNDOS_BLOQUEO_3_FALLOS = 60
 const SEGUNDOS_BLOQUEO_4_FALLOS = 300
 const SEGUNDOS_BLOQUEO_5_MAS_FALLOS = 900
+/** Ventana del contador por correo (solo retardo): pasado este tiempo sin fallos vuelve a cero. */
+const MINUTOS_VENTANA_RETARDO = 15
+const RETARDO_MAXIMO_MS = 4_000
 
 export type ConfiguracionSupabaseAuth = Readonly<{
   url: string
@@ -36,6 +39,8 @@ export type ConfiguracionSupabaseAuth = Readonly<{
   inactividadMinutos?: number | undefined
   duracionMaximaHoras?: number | undefined
   reloj?: Reloj | undefined
+  /** Inyectable en tests para no esperar de verdad el retardo por correo. */
+  esperar?: ((ms: number) => Promise<void>) | undefined
 }>
 
 type ActividadSesion = Readonly<{
@@ -43,8 +48,20 @@ type ActividadSesion = Readonly<{
   ultimoUso: number
 }>
 
-function hashIdentificador(correo: string): string {
-  return createHash('sha256').update(correo).digest('hex')
+function hashIdentificador(identificador: string): string {
+  return createHash('sha256').update(identificador).digest('hex')
+}
+
+const esperarReal = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+/**
+ * Retardo por correo (desde cualquier IP): frena el ataque distribuido sin bloquear la
+ * cuenta. 0 s hasta 2 fallos; 1 s, 2 s y 4 s (tope) a partir del tercero dentro de la ventana.
+ */
+export function retardoPorCorreoMs(fallos: number, ultimoFallo: Date | null, ahora: Date): number {
+  if (fallos < 3 || !ultimoFallo) return 0
+  if (ahora.getTime() - ultimoFallo.getTime() > MINUTOS_VENTANA_RETARDO * 60_000) return 0
+  return Math.min(RETARDO_MAXIMO_MS, 1_000 * 2 ** (fallos - 3))
 }
 
 function esErrorDesafioExpirado(error: {
@@ -103,6 +120,47 @@ export function crearIdentityProviderSupabase(config: ConfiguracionSupabaseAuth)
   const inactividadMinutos = config.inactividadMinutos ?? MINUTOS_INACTIVIDAD_POR_DEFECTO
   const duracionMaximaHoras = config.duracionMaximaHoras ?? HORAS_MAXIMAS_POR_DEFECTO
   const reloj = config.reloj ?? crearRelojSistema()
+  const esperar = config.esperar ?? esperarReal
+
+  /**
+   * Contador por correo desde CUALQUIER IP: solo alimenta el retardo, nunca bloquea la
+   * cuenta (el bloqueo duro es por correo + IP, en iniciarSesion). Ventana de 15 min.
+   */
+  async function registrarFalloPorCorreo(hashCorreo: string, momentoFallo: Date): Promise<void> {
+    const inicioVentana = new Date(momentoFallo.getTime() - MINUTOS_VENTANA_RETARDO * 60_000)
+    await conTransaccionDb(
+      async (tx) => {
+        await tx
+          .insert(bloqueosAcceso)
+          .values({
+            identificadorHash: hashCorreo,
+            fallosConsecutivos: 1,
+            primerFalloEn: momentoFallo,
+            ultimoFalloEn: momentoFallo,
+            bloqueadoHasta: null,
+            creadoEn: momentoFallo,
+            actualizadoEn: momentoFallo,
+          })
+          .onConflictDoUpdate({
+            target: bloqueosAcceso.identificadorHash,
+            set: {
+              // Si el último fallo es viejo, el contador vuelve a empezar.
+              fallosConsecutivos: sql`CASE
+                WHEN ${bloqueosAcceso.ultimoFalloEn} IS NULL
+                  OR ${bloqueosAcceso.ultimoFalloEn} < ${sql.param(inicioVentana, bloqueosAcceso.ultimoFalloEn)}::timestamptz
+                THEN 1
+                ELSE ${bloqueosAcceso.fallosConsecutivos} + 1
+              END`,
+              primerFalloEn: sql`COALESCE(${bloqueosAcceso.primerFalloEn}, ${sql.param(momentoFallo, bloqueosAcceso.primerFalloEn)}::timestamptz)`,
+              ultimoFalloEn: momentoFallo,
+              bloqueadoHasta: sql`NULL::timestamptz`,
+              actualizadoEn: momentoFallo,
+            },
+          })
+      },
+      { modo: 'sistema' },
+    )
+  }
 
   let cacheFirmador: ReturnType<typeof crearFirmador> | null = config.secretoActividad
     ? crearFirmador(config.secretoActividad)
@@ -172,16 +230,6 @@ export function crearIdentityProviderSupabase(config: ConfiguracionSupabaseAuth)
     } catch {
       // En Server Components las cookies son de solo lectura.
     }
-  }
-
-  function leerDesafioEnrolamiento(cookies: AlmacenCookies, usuarioId: string): string | null {
-    const carga = obtenerFirmador().verificar(cookies.obtener(nombreCookieDesafio))
-    if (!carga) return null
-    const [uid, factorId, expira] = carga.split('|')
-    if (!uid || !factorId || uid !== usuarioId) return null
-    const expiraMs = Number(expira)
-    if (!Number.isFinite(expiraMs) || expiraMs < reloj.ahora().getTime()) return null
-    return factorId
   }
 
   function leerActividad(raw: string | undefined, usuarioId: string): ActividadSesion | null {
@@ -275,27 +323,36 @@ export function crearIdentityProviderSupabase(config: ConfiguracionSupabaseAuth)
   }
 
   return {
-    async iniciarSesion({ correo, contrasena }, cookies) {
+    async iniciarSesion({ correo, contrasena }, cookies, contexto) {
       const correoNormalizado = correo.trim().toLowerCase()
-      const identificadorHash = hashIdentificador(correoNormalizado)
+      // Bloqueo DURO por correo + IP: 5 intentos desde una IP no pueden dejar fuera a un
+      // administrador que entra desde otra. Por correo (cualquier IP) solo hay RETARDO.
+      const identificadorHash = hashIdentificador(`${correoNormalizado}|${contexto?.ip ?? 'desconocida'}`)
+      const hashCorreo = hashIdentificador(correoNormalizado)
       const ahora = reloj.ahora()
 
-      const bloqueo = await conTransaccionDb(
-        async (tx) => {
-          const [fila] = await tx
-            .select({ bloqueadoHasta: bloqueosAcceso.bloqueadoHasta })
+      const filas = await conTransaccionDb(
+        (tx) =>
+          tx
+            .select({
+              identificadorHash: bloqueosAcceso.identificadorHash,
+              bloqueadoHasta: bloqueosAcceso.bloqueadoHasta,
+              fallosConsecutivos: bloqueosAcceso.fallosConsecutivos,
+              ultimoFalloEn: bloqueosAcceso.ultimoFalloEn,
+            })
             .from(bloqueosAcceso)
-            .where(eq(bloqueosAcceso.identificadorHash, identificadorHash))
-            .limit(1)
-          return fila?.bloqueadoHasta ?? null
-        },
+            .where(inArray(bloqueosAcceso.identificadorHash, [identificadorHash, hashCorreo])),
         { modo: 'sistema' },
       )
-
+      const bloqueo = filas.find((f) => f.identificadorHash === identificadorHash)?.bloqueadoHasta ?? null
       if (bloqueo && bloqueo.getTime() > ahora.getTime()) {
         const reintentarEnSegundos = Math.max(1, Math.ceil((bloqueo.getTime() - ahora.getTime()) / 1000))
         throw new DemasiadasPeticiones(reintentarEnSegundos)
       }
+
+      const porCorreo = filas.find((f) => f.identificadorHash === hashCorreo)
+      const retardo = retardoPorCorreoMs(porCorreo?.fallosConsecutivos ?? 0, porCorreo?.ultimoFalloEn ?? null, ahora)
+      if (retardo > 0) await esperar(retardo)
 
       const supabase = crearCliente(cookies)
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -342,12 +399,13 @@ export function crearIdentityProviderSupabase(config: ConfiguracionSupabaseAuth)
           },
           { modo: 'sistema' },
         )
+        await registrarFalloPorCorreo(hashCorreo, momentoFallo)
         throw new CredencialesInvalidas()
       }
 
       await conTransaccionDb(
         async (tx) => {
-          await tx.delete(bloqueosAcceso).where(eq(bloqueosAcceso.identificadorHash, identificadorHash))
+          await tx.delete(bloqueosAcceso).where(inArray(bloqueosAcceso.identificadorHash, [identificadorHash, hashCorreo]))
         },
         { modo: 'sistema' },
       )
@@ -359,42 +417,16 @@ export function crearIdentityProviderSupabase(config: ConfiguracionSupabaseAuth)
         throw new Error('No fue posible consultar los factores MFA del usuario')
       }
 
-      const factorVerificado = factores.totp.find((f) => f.status === 'verified')
-      if (factorVerificado) {
-        cookies.eliminar(nombreCookieDesafio)
-        return { usuarioId: data.user.id }
-      }
-
-      for (const factor of factores.all) {
-        if (factor.factor_type === 'totp' && factor.status === 'unverified') {
-          await supabase.auth.mfa.unenroll({ factorId: factor.id })
-        }
-      }
-
-      const { data: enrolado, error: errorEnroll } = await supabase.auth.mfa.enroll({
-        factorType: 'totp',
-        friendlyName: 'Panel Proinserco',
-      })
-
-      if (errorEnroll || !enrolado) {
+      // Sin TOTP verificado NO se ofrece enrolarlo aquí: con solo la contraseña nadie
+      // puede registrar su propio segundo factor. Lo activa el alta administrativa.
+      if (!factores.totp.some((f) => f.status === 'verified')) {
         await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined)
         limpiarCookiesAuth(cookies)
-        throw new Error('No fue posible iniciar el enrolamiento MFA TOTP')
+        throw new AccesoNoActivado()
       }
 
-      const expira = reloj.ahora().getTime() + DESAFIO_MINUTOS * 60_000
-      const carga = `${data.user.id}|${enrolado.id}|${expira}`
-      cookies.establecer(nombreCookieDesafio, obtenerFirmador().firmar(carga), opcionesCookie(DESAFIO_MINUTOS * 60))
-
-      return {
-        usuarioId: data.user.id,
-        enrolamientoMfa: {
-          factorId: enrolado.id,
-          qrSvg: enrolado.totp.qr_code,
-          secreto: enrolado.totp.secret,
-          uri: enrolado.totp.uri,
-        },
-      }
+      cookies.eliminar(nombreCookieDesafio)
+      return { usuarioId: data.user.id }
     },
 
     async desafioPendiente(cookies) {
@@ -422,13 +454,8 @@ export function crearIdentityProviderSupabase(config: ConfiguracionSupabaseAuth)
       const { data: factores, error: errorFactores } = await supabase.auth.mfa.listFactors()
       if (errorFactores || !factores) throw new DesafioMfaExpirado()
 
-      const factorVerificado = factores.totp.find((f) => f.status === 'verified')
-      const factorIdEnrolado = factorVerificado ? null : leerDesafioEnrolamiento(cookies, user.id)
-      const factorEnrolado = factorIdEnrolado
-        ? factores.all.find((f) => f.id === factorIdEnrolado && f.factor_type === 'totp')
-        : undefined
-      const factorId = factorVerificado?.id ?? factorEnrolado?.id
-
+      // Solo factores YA verificados (enrolados en el alta). Nunca uno recién creado.
+      const factorId = factores.totp.find((f) => f.status === 'verified')?.id
       if (!factorId) throw new DesafioMfaExpirado()
 
       const { error: errorVerify } = await supabase.auth.mfa.challengeAndVerify({

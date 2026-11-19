@@ -8,7 +8,12 @@ import { z } from 'zod'
  */
 const EsquemaPublico = z.object({
   /** Site key de Turnstile (pública por diseño). 1x00000000000000000000AA = clave de pruebas de Cloudflare. */
-  NEXT_PUBLIC_TURNSTILE_SITE_KEY: z.string().min(1).default('1x00000000000000000000AA'),
+  // Vacía = no definida (el Dockerfile la declara sin valor por defecto). En builds de
+  // producción scripts/verificar-clave-turnstile.mjs impide llegar aquí con la de pruebas.
+  NEXT_PUBLIC_TURNSTILE_SITE_KEY: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.string().min(1).default('1x00000000000000000000AA'),
+  ),
 })
 
 // Acceso explícito a cada variable: Next solo sustituye `process.env.NEXT_PUBLIC_X` literal.

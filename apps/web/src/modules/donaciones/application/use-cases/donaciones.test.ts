@@ -4,6 +4,7 @@ import { Actor } from '@/shared/domain/actor'
 import { NoAutorizado, NoEncontrado } from '@/shared/domain/errores'
 import { importeDesdePesos } from '@/shared/domain/importe'
 import { AHORA, actorDe, crearMundoMemoria, solicitudDonacion } from '@/test/mundo-memoria'
+import { Donacion } from '../../domain/donacion'
 import {
   CargoRechazadoPorFraude,
   DonacionesDeshabilitadas,
@@ -12,6 +13,8 @@ import {
   PasarelaNoDisponible,
 } from '../../domain/errores'
 import { FiltrosDonaciones } from '../../domain/esquemas'
+import { crearRepositorioDonacionesMemoria } from '../../infrastructure/repositorio-donaciones-memoria'
+import { crearConciliarDonacion } from './conciliar-donacion'
 import { crearCrearDonacion } from './crear-donacion'
 
 function idCargoDe(urlPago: string) {
@@ -85,7 +88,7 @@ describe('crear donación', () => {
       .mockRejectedValueOnce(new Error('500 interno'))
     const crearConPasarela = crearCrearDonacion({
       donaciones: m.repoDonaciones,
-      pasarela: { crearCargo, consultarCargo: vi.fn() },
+      pasarela: { crearCargo, consultarCargo: vi.fn(), buscarCargoPorReferencia: vi.fn(), listarCargos: vi.fn() },
       donantes: {
         registrar: async () => ({
           donanteId: '00000000-0000-4000-8000-000000000001',
@@ -109,7 +112,7 @@ describe('crear donación', () => {
     await expect(
       crearCrearDonacion({
         donaciones: m.repoDonaciones,
-        pasarela: { crearCargo, consultarCargo: vi.fn() },
+        pasarela: { crearCargo, consultarCargo: vi.fn(), buscarCargoPorReferencia: vi.fn(), listarCargos: vi.fn() },
         donantes: {
           registrar: async () => ({
             donanteId: '00000000-0000-4000-8000-000000000001',
@@ -189,7 +192,99 @@ describe('confirmar / rechazar (conciliación con la pasarela)', () => {
       quiereCertificado: expect.any(Boolean),
     })
     m.pasarela.resolverCargo(idCargoDe(urlPago), 'aprobado')
+    m.reloj.avanzar(31_000) // pasada la ventana de 30 s entre consultas a la pasarela
     expect((await m.consultarResultado(referencia)).estado).toBe('aprobada')
+  })
+
+  it('la página de resultado consulta a la pasarela como mucho una vez cada 30 s por donación', async () => {
+    const m = crearMundoMemoria()
+    const { referencia, urlPago } = await m.crearDonacion(solicitudDonacion())
+    const consultar = vi.spyOn(m.pasarela, 'consultarCargo')
+    await m.consultarResultado(referencia)
+    await m.consultarResultado(referencia)
+    await m.consultarResultado(referencia)
+    expect(consultar).toHaveBeenCalledTimes(1)
+
+    m.pasarela.resolverCargo(idCargoDe(urlPago), 'aprobado')
+    m.reloj.avanzar(10_000)
+    expect((await m.consultarResultado(referencia)).estado).toBe('pendiente')
+    expect(consultar).toHaveBeenCalledTimes(1)
+
+    m.reloj.avanzar(21_000)
+    expect((await m.consultarResultado(referencia)).estado).toBe('aprobada')
+    expect(consultar).toHaveBeenCalledTimes(2)
+    // Ya cerrada: no vuelve a consultar aunque pase el tiempo.
+    m.reloj.avanzar(60_000)
+    await m.consultarResultado(referencia)
+    expect(consultar).toHaveBeenCalledTimes(2)
+  })
+
+  it('una moneda distinta de COP es DISCREPANCIA auditada: no cambia el estado ni lanza (el webhook responde 200)', async () => {
+    const m = crearMundoMemoria()
+    const { referencia, urlPago } = await m.crearDonacion(solicitudDonacion(50_000))
+    m.pasarela.forzarEstado(idCargoDe(urlPago), 'aprobado')
+    m.pasarela.forzarMoneda(idCargoDe(urlPago), 'USD')
+    expect(await m.conciliarDonacion({ idCargo: idCargoDe(urlPago) }, 'webhook')).toEqual({
+      resultado: 'discrepancia',
+      estado: 'pendiente',
+    })
+    const auditoria = await m.listarAuditoria({ accion: 'donacion.discrepancia' }, {}, actorDe('administrador'))
+    expect(auditoria.elementos[0]?.detalles).toMatchObject({ motivo: 'moneda', monedaPasarela: 'USD', severidad: 'alta' })
+    expect((await m.repoDonaciones.buscarPorReferencia(referencia))?.estado).toBe('pendiente')
+  })
+
+  it('webhook: si no encuentra la donación por idCargo la busca por order_id y recupera el cargo (falló el UPDATE a pendiente)', async () => {
+    const m = crearMundoMemoria()
+    const { referencia, urlPago } = await m.crearDonacion(solicitudDonacion())
+    const idCargo = idCargoDe(urlPago)
+    // Simula que el UPDATE creada → pendiente nunca llegó a la base de datos.
+    const guardada = await m.repoDonaciones.buscarPorReferencia(referencia)
+    if (!guardada) throw new Error('sin donación')
+    const sinCargo = Donacion.reconstruir({ ...guardada.datos, estado: 'creada', idCargo: null, urlPago: null, historial: [] })
+    const repoAislado = crearRepositorioDonacionesMemoria(m.reloj)
+    await repoAislado.insertar(sinCargo)
+    const conciliar = crearConciliarDonacion({
+      donaciones: repoAislado,
+      pasarela: m.pasarela,
+      reloj: m.reloj,
+      eventos: m.eventos,
+      auditor: { registrar: m.registrarAuditoria },
+    })
+    m.pasarela.resolverCargo(idCargo, 'aprobado')
+
+    expect(await conciliar({ idCargo }, 'webhook')).toEqual({ resultado: 'no_encontrada' })
+    expect(await conciliar({ idCargo, referenciaRespaldo: referencia }, 'webhook')).toEqual({
+      resultado: 'actualizada',
+      estado: 'aprobada',
+    })
+    const final = await repoAislado.buscarPorReferencia(referencia)
+    expect(final?.datos.idCargo).toBe(idCargo)
+    expect(final?.datos.historial.map((t) => t.hacia)).toEqual(['pendiente', 'aprobada'])
+  })
+
+  it('webhook: un order_id ajeno nunca asocia un cargo de otra donación (el order_id del cargo manda)', async () => {
+    const m = crearMundoMemoria()
+    const a = await m.crearDonacion(solicitudDonacion())
+    const b = await m.crearDonacion(solicitudDonacion())
+    const guardadaB = await m.repoDonaciones.buscarPorReferencia(b.referencia)
+    if (!guardadaB) throw new Error('sin donación')
+    const repoAislado = crearRepositorioDonacionesMemoria(m.reloj)
+    await repoAislado.insertar(
+      Donacion.reconstruir({ ...guardadaB.datos, estado: 'creada', idCargo: null, urlPago: null, historial: [] }),
+    )
+    const conciliar = crearConciliarDonacion({
+      donaciones: repoAislado,
+      pasarela: m.pasarela,
+      reloj: m.reloj,
+      eventos: m.eventos,
+      auditor: { registrar: m.registrarAuditoria },
+    })
+    m.pasarela.resolverCargo(idCargoDe(a.urlPago), 'aprobado')
+    // Aviso con el cargo de A pero el order_id de B: el cargo consultado dice referencia A.
+    expect(await conciliar({ idCargo: idCargoDe(a.urlPago), referenciaRespaldo: b.referencia }, 'webhook')).toEqual({
+      resultado: 'discrepancia',
+      estado: 'creada',
+    })
   })
 
   it('una referencia inventada o mal formada responde no encontrado', async () => {

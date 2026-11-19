@@ -19,6 +19,8 @@ type Props = {
   lineaInicial: LineaApoyo
   antibots: 'memoria' | 'turnstile'
   siteKey: string
+  /** Nonce de la CSP para cargar el script de Turnstile. */
+  nonce?: string | undefined
 }
 
 type ErrorServidor = { codigo: string; mensaje: string; requestId: string; reintentarEnSegundos?: number }
@@ -547,6 +549,7 @@ export function FormularioDonar(props: Props) {
               <VerificacionAntiBots
                 modo={props.antibots}
                 siteKey={props.siteKey}
+                nonce={props.nonce}
                 token={tokenAntiBots}
                 reinicio={reinicioAntiBots}
                 error={errores.tokenAntiBots}
@@ -594,7 +597,8 @@ export function FormularioDonar(props: Props) {
           </p>
           <button
             type="submit"
-            disabled={isPending}
+            // En el paso 3 no se puede pagar sin token de la verificación de seguridad.
+            disabled={isPending || (paso === 3 && !tokenAntiBots)}
             className="boton-continuar inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-pastilla bg-acento px-6 text-sobre-acento disabled:cursor-wait disabled:opacity-60 sm:flex-none"
           >
             {paso < 3 ? 'Continuar' : isPending ? 'Preparando tu pago…' : 'Continuar al pago seguro'}

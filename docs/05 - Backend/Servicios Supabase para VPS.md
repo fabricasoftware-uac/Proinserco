@@ -31,7 +31,7 @@ Guía operativa para desplegar **Supabase Self-Hosted** en el VPS de DigitalOcea
 | Servicio | Estado recomendado en producción | Cuándo activarlo |
 |---|---|---|
 | `studio` + `meta` (`postgres-meta`) | **Apagados en producción normal** | Levantar solo bajo demanda para inspección puntual y enlazar únicamente a `127.0.0.1` vía túnel SSH. Nunca publicarlos tras Traefik ni Cloudflare. |
-| Relay **SMTP** externo | Opcional según flujo de alta | Requerido por `auth` únicamente si se usa alta por invitación (`--modo invitacion` en `scripts/alta-usuario-panel.mjs`) o recuperación por correo. Sin SMTP, el alta inicial del panel usa `--modo contrasena`. |
+| Relay **SMTP** externo | Opcional | Solo para recuperación de contraseña por correo. El alta del panel ya no usa invitación por correo (modo eliminado el 2026-11-18): `scripts/alta-usuario-panel.mjs` fija la contraseña y enrola el TOTP en el momento. |
 
 ### 1.3 Descartados / NO desplegar en el VPS
 
@@ -125,7 +125,10 @@ Estas variables para el contenedor `auth` (`docker-compose.yml` / recurso en Coo
 
 ## 4. Guía paso a paso post-despliegue (agente / ingeniero de VPS)
 
-### Paso 1 — Aplicar las 5 migraciones reales vía `DATABASE_URL_DIRECT` (sin `supabase/seed.sql`)
+### Paso 1 — Aplicar las migraciones vía `DATABASE_URL_DIRECT` (sin `supabase/seed.sql`)
+
+> [!important] **Actualizado 2026-11-18**
+> Ya hay **7** migraciones. Las dos nuevas son `20261118200000_flujo_publico_funciones_acotadas.sql` y `20261118200100_auditoria_alertas_conciliacion.sql`. Lo recomendado es `scripts/aplicar-migraciones.sh` (todas en orden, cada una en su transacción; con `DESDE=20261118200000` aplica solo las nuevas en un servidor que ya tiene las cinco primeras). Ver [[Pasos para Salomón en el servidor]].
 
 Las migraciones deben aplicarse en orden estricto sobre la conexión directa a `db` (puerto `5432`), nunca sobre Supavisor en puerto `6543`:
 
@@ -203,21 +206,19 @@ export SUPABASE_URL="http://127.0.0.1:18000"
 export SUPABASE_SERVICE_ROLE_KEY="<SERVICE_ROLE_KEY>"
 export DATABASE_URL_DIRECT="postgresql://postgres:<POSTGRES_PASSWORD>@127.0.0.1:15432/postgres"
 
-# 1. Sin SMTP configurado (primer arranque): pide contraseña oculta (>= 12 caracteres)
+# Alta con contraseña inicial (prompt oculto, >= 12 caracteres) y TOTP enrolado en el momento.
+# La persona debe estar delante con su app autenticadora: el script muestra UNA vez la clave
+# y el URI otpauth:// y pide el primer código de 6 dígitos.
 node scripts/alta-usuario-panel.mjs \
   --correo admin@proinserco.org \
   --nombre "Nombre Admin" \
   --rol administrador \
-  --modo contrasena \
   --metodo-bd sql
 
-# 2. Con SMTP configurado (envía invitación por correo):
+# Teléfono perdido: borra sus factores, fija contraseña nueva, enrola TOTP nuevo y cierra sus sesiones.
 node scripts/alta-usuario-panel.mjs \
-  --correo persona@proinserco.org \
-  --nombre "Nombre Consulta" \
-  --rol consulta \
-  --modo invitacion \
-  --metodo-bd sql
+  --correo persona@proinserco.org --nombre "Nombre Consulta" --rol consulta \
+  --actualizar-existente --restablecer-mfa --metodo-bd sql
 ```
 
 **Fallback si no tienes `psql` local ni PostgREST (`rest` apagado):**
@@ -242,8 +243,8 @@ COMMIT;
 SQL
 ```
 
-> [!note] **Primer inicio de sesión**
-> Al ingresar a `/acceso` con la contraseña inicial, el panel exige obligatoriamente enrolar y verificar un factor MFA TOTP para alcanzar el nivel `aal2`.
+> [!note] **Primer inicio de sesión (actualizado 2026-11-18)**
+> El panel ya **no** enrola TOTP en el login: una cuenta sin factor verificado ve «Pide al administrador que active tu acceso». Si el script se cortó antes de verificar el TOTP (por ejemplo, por el fallback SQL manual de arriba), repítelo con `--actualizar-existente --restablecer-mfa` una vez sincronizado IAM.
 
 ---
 

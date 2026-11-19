@@ -13,8 +13,23 @@ export const runtime = 'nodejs'
  * Endpoint protegido para el cron de conciliación diaria de donaciones.
  * Exige `CRON_CONCILIACION_SECRETO` y `Authorization: Bearer <secreto>`
  * validado en tiempo constante.
+ *
+ * Disparadores:
+ *  - VPS (Coolify): Scheduled Task con `curl -X POST … -H "Authorization: Bearer …"`.
+ *  - Vercel Cron: llama con GET y `Authorization: Bearer $CRON_SECRET`; en Vercel se
+ *    define `CRON_SECRET` con el MISMO valor que `CRON_CONCILIACION_SECRETO`
+ *    (programación en apps/web/vercel.json).
  */
 export async function POST(request: Request): Promise<Response> {
+  return ejecutarCron(request)
+}
+
+/** Vercel Cron solo hace GET. Misma autenticación y mismo efecto que POST. */
+export async function GET(request: Request): Promise<Response> {
+  return ejecutarCron(request)
+}
+
+async function ejecutarCron(request: Request): Promise<Response> {
   const env = obtenerEnv()
   const secreto = env.CRON_CONCILIACION_SECRETO
   if (!secreto) {

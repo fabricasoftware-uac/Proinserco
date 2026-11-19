@@ -33,15 +33,18 @@ Fuente: `PENDIENTES_CONTENIDO` en `apps/web/src/modules/contenido/datos/contenid
 
 ## De backend (Salomón)
 
-Detalle en [[Handoff para Backend]] y [[Servicios Supabase para VPS]].
+Detalle en [[Handoff para Backend]] (sección 0: cambios de la revisión del 2026-11-18), [[Servicios Supabase para VPS]] y la lista ordenada de [[Pasos para Salomón en el servidor]].
 
 | Pri. | Pendiente |
 |---|---|
 | P1 | Respuestas de soporte de Openpay ([[Handoff para Backend]], sección 7.9) |
-| P1 | Despliegue en VPS (Coolify + Supabase Self-Hosted según [[Servicios Supabase para VPS]]): aplicar migraciones con `DATABASE_URL_DIRECT`, crear usuario inicial con `scripts/alta-usuario-panel.mjs`, configurar Scheduled Task diario en `POST /api/cron/conciliacion` con `CRON_CONCILIACION_SECRETO`, cerrar origen a Cloudflare (`DESPLIEGUE=cloudflare`) y usar llaves reales de Turnstile y Openpay con `OPENPAY_SANDBOX_EN_PRODUCCION=no` |
-| P1 | Pruebas en vivo en Sandbox de Openpay y VPS: flujo completo de checkout hospedado, alta del webhook `/api/webhooks/openpay/[secreto]` (`verification`, `charge.*`, `chargeback.*`), confirmar host real de checkout para `OPENPAY_CHECKOUT_ORIGIN` y validar `CSP_SOLO_REPORTE=si` → `no` |
-| P2 | Ejecutar la suite de integración RLS (`apps/web/src/server/db/seguridad-rls.integration.test.ts`) y los tests de contrato contra PostgreSQL y Redis reales (`TEST_DATABASE_URL`, `TEST_REDIS_URL`) |
-| P2 | Alertado y monitoreo externo sobre discrepancias/errores del cron `POST /api/cron/conciliacion` y salud del VPS |
+| P1 | Despliegue según [[Pasos para Salomón en el servidor]]: aplicar las migraciones nuevas `20261118200000_flujo_publico_funciones_acotadas.sql` y `20261118200100_auditoria_alertas_conciliacion.sql` (`scripts/aplicar-migraciones.sh`), dar de alta a los usuarios **con su TOTP** con el script nuevo, Scheduled Task diario (o Vercel Cron), cerrar origen a Cloudflare (`DESPLIEGUE=cloudflare`), llaves reales de Turnstile (variable del repositorio para el build) y Openpay con `OPENPAY_SANDBOX_EN_PRODUCCION=no` |
+| P1 | Crear el widget de Turnstile en Cloudflare (dominio real + `localhost`) y poner las claves reales (`NEXT_PUBLIC_TURNSTILE_SITE_KEY` como variable del repositorio/build-arg y `TURNSTILE_SECRET_KEY` en el servidor). Con las de prueba la app ya no arranca en producción |
+| P1 | **Decidir VPS o Vercel.** Si se queda en Vercel: `DESPLIEGUE=vercel`, Redis compartido por TLS (Upstash) en `LIMITADOR_URL` (sin ella la app no arranca), `CRON_SECRET` = `CRON_CONCILIACION_SECRETO` y Supabase/Postgres accesibles desde Vercel (pooler público con TLS). El plan documentado sigue siendo VPS + Coolify + Cloudflare |
+| P1 | Pruebas en vivo en Sandbox de Openpay y VPS: flujo completo de checkout hospedado, alta del webhook `/api/webhooks/openpay/[secreto]` (`verification`, `charge.*`, `chargeback.*`), confirmar host real de checkout para `OPENPAY_CHECKOUT_ORIGIN`, verificar que `GET /charges?order_id=` y el listado por `creation[gte]/[lte]` filtran como se espera, y validar `CSP_SOLO_REPORTE=si` → `no` |
+| P2 | Configurar `ALERTAS_WEBHOOK_URL` (canal que alguien lea) y monitoreo externo de la salud del VPS y de que el cron corre a diario (un cron que no se ejecuta no alerta) |
+| P2 | Pantalla del panel para **editar datos de un donante** (correo, celular): el flujo público ya no puede sobrescribirlos. Requiere contrato nuevo (`donantes:editar` o reutilizar `ajustes:editar`) y auditoría |
+| P3 | Dependabot para las GitHub Actions fijadas por SHA y para dependencias |
 | P2 | Correos transaccionales y certificado de donación (si el cliente confirma calificación en el RTE) |
 | P2 | Rotar la clave de Pexels (`PEXELS_API_KEY` usada en `apps/web/.env.local`) |
 | P3 | Funcionalidades de contrato pendientes de decisión/implementación ([[Handoff para Backend]], sección 10 puntos 3 y 7): reembolsos desde el panel (`donaciones:reembolsar`), `donantes:exportar`, `ajustes:editar` y listado multi-sesión en `IdentityProvider` |
@@ -56,6 +59,7 @@ Detalle en [[Handoff para Backend]] y [[Servicios Supabase para VPS]].
 | Conciliación diaria y abandono de `creada` | `conciliar-pendientes.ts`, `POST /api/cron/conciliacion` y migración `20261118010625_permitir_expirar_donacion_creada.sql` |
 | Limitador compartido con Redis | `apps/web/src/shared/infrastructure/limitador-redis.ts` cableado en `container.ts` vía `LIMITADOR_URL` |
 | Retiro de archivos demo y pasarela simulada | Eliminados `demo.ts`, `acciones-demo.ts`, `usuarios-demo.ts` y rutas/acciones de `pasarela-simulada` en runtime; `supabase/seed.sql` limpio (solo queda `apps/web/src/test/pasarela-simulada.ts` en tests unitarios y `public/img/demo` pendiente de fotos reales) |
+| Revisión del 2026-11-18 (cerrada) | RLS del flujo público con funciones `SECURITY DEFINER` acotadas (migración `20261118200000`); webhook con respaldo por `order_id`; moneda ≠ COP como discrepancia; conciliación que consulta `order_id` antes de expirar y cruza con el listado de cargos; alertas con auditoría (`conciliacion.alerta`, migración `20261118200100`) y puerto `Notificador`; TOTP solo en el alta (`scripts/alta-usuario-panel.mjs`, modo invitación eliminado); bloqueo por correo + IP con retardo por correo; `/donar/resultado` con rol público, límite por IP y caché de 30 s; memoria con pasarela simulada y usuarios demo solo fuera de producción; Vercel exige `LIMITADOR_URL`; CI con actions por SHA, clave real de Turnstile y job de integración con Postgres + Redis (0 tests saltados) |
 | Mejoras de contrato y tests compartidos | Puntos 1, 2, `expiraEn` del 3, 4, normalización IP `'desconocida'` → `NULL` del 5 y punto 6 de Handoff sección 10; contratos en `apps/web/src/test/contratos/*.contrato.ts` |
 
 ## Del rediseño visual
@@ -100,7 +104,7 @@ Para listarlos todos: buscar `POR DEFINIR` en `apps/web/src`.
 ### Completados en código (infraestructura y CI)
 
 - `Dockerfile` y `.dockerignore` en la raíz del repositorio (imagen multi-stage `node:24-alpine` con `output: 'standalone'` y `HEALTHCHECK` en `/api/health`).
-- CI/CD con GitHub Actions en `.github/workflows/ci.yml`: ejecuta `pnpm verify` en `push`/`pull_request` a `main` y construye/publica la imagen Docker en GHCR en `push` a `main`.
+- CI/CD con GitHub Actions en `.github/workflows/ci.yml`: ejecuta `pnpm verify` en `push`/`pull_request` a `main`, el job `integracion` (Postgres 17 + Redis 7 con las migraciones aplicadas; falla si algún test se salta) y construye/publica la imagen Docker en GHCR en `push` a `main` solo con la clave real de Turnstile. Actions fijadas por SHA.
 
 ---
 

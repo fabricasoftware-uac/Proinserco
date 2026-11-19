@@ -4,11 +4,12 @@ import { crearRegistrarAuditoria } from '@/modules/auditoria/application/use-cas
 import { crearRegistroAuditoriaMemoria } from '@/modules/auditoria/infrastructure/registro-auditoria-memoria'
 import { crearRelojFijo } from '@/shared/infrastructure/reloj'
 import { AHORA, actorDe, crearIdsSecuenciales } from '@/test/mundo-memoria'
-import { CodigoMfaInvalido, CredencialesInvalidas, DesafioMfaExpirado } from '../../domain/errores'
+import { AccesoNoActivado, CodigoMfaInvalido, CredencialesInvalidas, DesafioMfaExpirado } from '../../domain/errores'
 import { RutaSiguiente } from '../../domain/esquemas'
 import { crearIdentityProviderMemoria, type UsuarioMemoria } from '../../infrastructure/identity-provider-memoria'
 import { generarTotp } from '../../infrastructure/totp'
 import type { AlmacenCookies } from '../ports/almacen-cookies'
+import type { IdentityProvider } from '../ports/identity-provider'
 import { crearCerrarSesion } from './cerrar-sesion'
 import { crearIniciarSesion } from './iniciar-sesion'
 import { crearObtenerActor } from './obtener-actor'
@@ -88,6 +89,31 @@ describe('inicio de sesión con segundo factor', () => {
     ).rejects.toThrow(CredencialesInvalidas)
     const fallos = await iam.listarAuditoria({ accion: 'sesion.fallida' }, {}, actorDe('administrador'))
     expect(fallos.total).toBe(2)
+  })
+
+  it('una cuenta sin TOTP activado no entra ni puede enrolarse desde el login: AccesoNoActivado auditado', async () => {
+    const reloj = crearRelojFijo(AHORA)
+    const registro = crearRegistroAuditoriaMemoria()
+    const auditor = { registrar: crearRegistrarAuditoria({ registro, reloj, ids: crearIdsSecuenciales() }) }
+    const contextos: unknown[] = []
+    const identidad: IdentityProvider = {
+      async iniciarSesion(_c, _cookies, contexto) {
+        contextos.push(contexto)
+        throw new AccesoNoActivado()
+      },
+      desafioPendiente: async () => null,
+      verificarSegundoFactor: async () => {
+        throw new Error('no debe llamarse')
+      },
+      obtenerIdentidad: async () => null,
+      cerrarSesion: async () => undefined,
+    }
+    const iniciar = crearIniciarSesion({ identidad, auditor })
+
+    await expect(iniciar(credenciales, crearCookies(), '192.0.2.9')).rejects.toThrow('Pide al administrador que active tu acceso')
+    expect(contextos).toEqual([{ ip: '192.0.2.9' }])
+    const fallos = await crearListarAuditoria({ registro })({ accion: 'sesion.fallida' }, {}, actorDe('administrador'))
+    expect(fallos.elementos[0]?.detalles).toEqual({ motivo: 'mfa_no_activado' })
   })
 
   it('rechaza un código TOTP incorrecto y uno reutilizado', async () => {

@@ -6,48 +6,112 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+# Actions fijadas por SHA de commit (no por etiqueta movible). El comentario indica la versión.
+# Para actualizar: `git ls-remote --tags https://github.com/<org>/<action> 'refs/tags/vX.Y.Z*'`.
 jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm verify
 
+  # Tests de integración contra PostgreSQL y Redis reales (efímeros). Ejecuta la suite RLS,
+  # los contratos Postgres de donantes/donaciones/auditoría y el contrato del limitador Redis,
+  # que en `verify` se saltan por falta de TEST_DATABASE_URL / TEST_REDIS_URL.
+  #
+  # PostgreSQL "plano" (imagen oficial) + supabase/tests/preparar-postgres-plano.sql, que crea
+  # los roles (anon, authenticated, service_role, supabase_auth_admin) y el esquema `auth`
+  # que las migraciones esperan. Ver la cabecera de ese archivo para las diferencias con Supabase.
+  integracion:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL_DIRECT: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+      TEST_REDIS_URL: redis://127.0.0.1:6379
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Aplicar migraciones sobre Postgres efímero
+        run: PREPARAR_POSTGRES_PLANO=si sh scripts/aplicar-migraciones.sh
+      - name: Tests con PostgreSQL y Redis
+        run: pnpm --filter @proinserco/web exec vitest run --reporter=default --reporter=json --outputFile.json=resultado-vitest.json
+      - name: Fallar si algún test se saltó (con servicios no debe saltarse ninguno)
+        run: |
+          node -e "const r=require('./apps/web/resultado-vitest.json'); const s=r.numPendingTests+r.numTodoTests; if (s>0) { console.error('Tests saltados = '+s); process.exit(1) } console.log('Sin tests saltados, en verde = '+r.numPassedTests)"
+
   docker:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: verify
+    needs: [verify, integracion]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # La clave de sitio de Turnstile se incrusta en el build: sin la real, la imagen de
+      # producción NO se construye (antes caía a la clave de pruebas 1x000…AA).
+      - name: Exigir clave real de Turnstile
+        env:
+          NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${{ vars.NEXT_PUBLIC_TURNSTILE_SITE_KEY }}
+          EXIGIR_CLAVE_TURNSTILE_REAL: si
+        run: node scripts/verificar-clave-turnstile.mjs
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
           images: ghcr.io/${{ github.repository }}-web
           tags: |
             type=ref,event=branch
             type=sha
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            NEXT_PUBLIC_TURNSTILE_SITE_KEY=${{ vars.NEXT_PUBLIC_TURNSTILE_SITE_KEY || '1x00000000000000000000AA' }}
+            NEXT_PUBLIC_TURNSTILE_SITE_KEY=${{ vars.NEXT_PUBLIC_TURNSTILE_SITE_KEY }}
+            EXIGIR_CLAVE_TURNSTILE_REAL=si
           cache-from: type=gha
           cache-to: type=gha,mode=max

@@ -1,12 +1,13 @@
 import { and, asc, count, desc, eq, gte, ilike, inArray, lte, or, type SQL, sql } from 'drizzle-orm'
 import type { PgColumn } from 'drizzle-orm/pg-core'
 import { escaparParaLike, esUuidValido, normalizarLimitePaginacion, parsearFechaCursor } from '@/server/db/consultas'
-import { conTransaccionDb, type TransaccionDb } from '@/server/db/contexto-db'
+import { conTransaccionDb, obtenerContextoDb, type TransaccionDb } from '@/server/db/contexto-db'
 import { donaciones, donacionesTransiciones, type FilaDonacion } from '@/server/db/schema'
+import { Moneda } from '@/shared/domain/importe'
 import { type ClaveCursor, codificarCursor, decodificarCursor } from '@/shared/domain/paginacion'
 import type { RepositorioDonaciones } from '../application/ports/repositorio-donaciones'
 import { Donacion, type DonacionId, type TransicionRegistrada } from '../domain/donacion'
-import type { FiltrosDonaciones } from '../domain/esquemas'
+import { type FiltrosDonaciones, ReferenciaDonacion } from '../domain/esquemas'
 import { EstadoDonacion } from '../domain/estado-donacion'
 
 type Orden = NonNullable<FiltrosDonaciones['orden']>
@@ -125,27 +126,19 @@ export function crearRepositorioDonacionesPostgres(): RepositorioDonaciones {
         throw new Error('Identificadores de donación inválidos: se requieren UUIDs')
       }
 
+      if (d.estado !== 'creada' || d.idCargo || d.urlPago || d.metodoPago) {
+        throw new Error('Solo se insertan donaciones en estado creada y sin cargo')
+      }
+
+      // Solo por la función acotada: `proinserco_publico` no tiene INSERT sobre la tabla.
       await conTransaccionDb(
         async (tx) => {
-          await tx.insert(donaciones).values({
-            id: d.id,
-            referencia: d.referencia,
-            claveIdempotencia: d.claveIdempotencia,
-            estado: d.estado,
-            importeCentavos: d.importe.centavos,
-            moneda: d.importe.moneda,
-            linea: d.linea,
-            donanteId: d.donanteId,
-            pagadorNombres: d.pagador.nombres,
-            pagadorApellidos: d.pagador.apellidos,
-            pagadorCorreo: d.pagador.correo,
-            quiereCertificado: d.quiereCertificado,
-            idCargo: d.idCargo,
-            urlPago: d.urlPago,
-            metodoPago: d.metodoPago,
-            creadaEn: d.creadaEn,
-            actualizadaEn: d.actualizadaEn,
-          })
+          await tx.execute(sql`
+            SELECT public.crear_donacion_publica(
+              ${d.id}::uuid, ${d.referencia}, ${d.claveIdempotencia}::uuid, ${d.importe.centavos.toString()}::bigint,
+              ${d.importe.moneda}, ${d.linea}, ${d.donanteId}::uuid, ${d.pagador.nombres}, ${d.pagador.apellidos},
+              ${d.pagador.correo}, ${d.quiereCertificado}, ${d.creadaEn.toISOString()}::timestamptz
+            )`)
         },
         { modo: 'publico' },
       )
@@ -154,6 +147,22 @@ export function crearRepositorioDonacionesPostgres(): RepositorioDonaciones {
     async actualizarSiEstado(donacion, estadoEsperado) {
       const d = donacion.datos
       if (!esUuidValido(d.id)) return false
+
+      if (obtenerContextoDb()?.modo === 'publico') {
+        // El flujo público solo registra el cargo recién creado (`creada` → `pendiente`).
+        if (estadoEsperado !== 'creada' || d.estado !== 'pendiente' || !d.idCargo || !d.urlPago) {
+          throw new Error('Transición no permitida en el flujo público')
+        }
+        const idCargo = d.idCargo
+        const urlPago = d.urlPago
+        return conTransaccionDb(async (tx) => {
+          const filas = await tx.execute<{ registrado: boolean }>(sql`
+            SELECT public.registrar_cargo_donacion_publica(
+              ${d.id}::uuid, ${idCargo}, ${urlPago}, ${d.actualizadaEn.toISOString()}::timestamptz
+            ) AS registrado`)
+          return Boolean(filas[0]?.registrado)
+        })
+      }
 
       return conTransaccionDb(
         async (tx) => {
@@ -194,16 +203,67 @@ export function crearRepositorioDonacionesPostgres(): RepositorioDonaciones {
     },
 
     async buscarPorReferencia(referencia) {
-      return conTransaccionDb((tx) => buscarUnica(tx, eq(donaciones.referencia, referencia)), { modo: 'publico' })
+      // Lectura completa: solo sistema (conciliación) o panel. El flujo público usa buscarResumenPublico.
+      return conTransaccionDb((tx) => buscarUnica(tx, eq(donaciones.referencia, referencia)), { modo: 'sistema' })
     },
 
     async buscarPorIdCargo(idCargo) {
       return conTransaccionDb((tx) => buscarUnica(tx, eq(donaciones.idCargo, idCargo)), { modo: 'sistema' })
     },
 
-    async buscarPorClaveIdempotencia(clave) {
+    async buscarIntentoPorClave(clave) {
       if (!esUuidValido(clave)) return null
-      return conTransaccionDb((tx) => buscarUnica(tx, eq(donaciones.claveIdempotencia, clave)), { modo: 'publico' })
+      return conTransaccionDb(
+        async (tx) => {
+          const [fila] = await tx.execute<{ referencia: string; estado: string; url_pago: string | null }>(
+            sql`SELECT referencia, estado, url_pago FROM public.intento_donacion_por_clave(${clave}::uuid)`,
+          )
+          if (!fila) return null
+          return { referencia: fila.referencia, estado: EstadoDonacion.parse(fila.estado), urlPago: fila.url_pago }
+        },
+        { modo: 'publico' },
+      )
+    },
+
+    async buscarResumenPublico(referencia) {
+      if (!ReferenciaDonacion.safeParse(referencia).success) return null
+      return conTransaccionDb(
+        async (tx) => {
+          const [fila] = await tx.execute<{
+            referencia: string
+            estado: string
+            importe_centavos: string | number | bigint
+            moneda: string
+            creada_en: string | Date
+            quiere_certificado: boolean
+          }>(sql`
+            SELECT referencia, estado, importe_centavos::text AS importe_centavos, moneda, creada_en, quiere_certificado
+              FROM public.resultado_donacion_publica(${referencia})`)
+          if (!fila) return null
+          return {
+            referencia: fila.referencia,
+            estado: EstadoDonacion.parse(fila.estado),
+            importe: { centavos: BigInt(fila.importe_centavos), moneda: Moneda.parse(fila.moneda.trim()) },
+            creadaEn: new Date(fila.creada_en),
+            quiereCertificado: Boolean(fila.quiere_certificado),
+          }
+        },
+        { modo: 'publico' },
+      )
+    },
+
+    async reservarConsultaPasarela(referencia, intervaloSegundos) {
+      if (!ReferenciaDonacion.safeParse(referencia).success) return false
+      const intervalo = Math.trunc(intervaloSegundos)
+      return conTransaccionDb(
+        async (tx) => {
+          const [fila] = await tx.execute<{ reservada: boolean }>(
+            sql`SELECT public.reservar_consulta_pasarela_publica(${referencia}, ${intervalo}::integer) AS reservada`,
+          )
+          return Boolean(fila?.reservada)
+        },
+        { modo: 'publico' },
+      )
     },
 
     async listar(filtros, paginacion) {

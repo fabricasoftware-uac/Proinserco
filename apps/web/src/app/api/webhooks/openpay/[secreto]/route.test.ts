@@ -143,6 +143,28 @@ describe('POST /api/webhooks/openpay/[secreto]', () => {
     expect(conciliarDonacion).not.toHaveBeenCalled()
   })
 
+  it('pasa transaction.order_id como referencia de RESPALDO (solo si tiene formato DON-) para recuperar donaciones sin idCargo', async () => {
+    const { db } = crearDbMock((sql) => (sql.includes('insert into "idempotencia_webhooks"') ? [[null]] : []))
+    obtenerDbMock.mockReturnValue(db)
+
+    const ref = 'DON-0123456789ABCDEFGHJKM'
+    const conRef = JSON.stringify({ type: 'charge.succeeded', transaction: { id: 'tr_1', order_id: ref } })
+    expect((await POST(peticion(conRef), { params: Promise.resolve({ secreto: SECRETO }) })).status).toBe(200)
+    expect(conciliarDonacion).toHaveBeenLastCalledWith({ idCargo: 'tr_1', referenciaRespaldo: ref }, 'webhook')
+
+    const refBasura = JSON.stringify({ type: 'charge.succeeded', transaction: { id: 'tr_2', order_id: "' OR 1=1 --" } })
+    expect((await POST(peticion(refBasura), { params: Promise.resolve({ secreto: SECRETO }) })).status).toBe(200)
+    expect(conciliarDonacion).toHaveBeenLastCalledWith({ idCargo: 'tr_2', referenciaRespaldo: undefined }, 'webhook')
+  })
+
+  it('una discrepancia (p. ej. moneda distinta de COP) responde 200: Openpay no reintenta en bucle', async () => {
+    const { db } = crearDbMock((sql) => (sql.includes('insert into "idempotencia_webhooks"') ? [[null]] : []))
+    obtenerDbMock.mockReturnValue(db)
+    conciliarDonacion.mockResolvedValueOnce({ resultado: 'discrepancia', estado: 'pendiente' })
+    const body = JSON.stringify({ type: 'charge.succeeded', transaction: { id: 'tr_usd' } })
+    expect((await POST(peticion(body), { params: Promise.resolve({ secreto: SECRETO }) })).status).toBe(200)
+  })
+
   it('no bloquea reintentos si la ejecución previa terminó con error y responde 503 en NoImplementado', async () => {
     const { db: dbErrorPrevio } = crearDbMock((sql) => {
       if (sql.includes('insert into "idempotencia_webhooks"')) return [['error:conciliacion']]

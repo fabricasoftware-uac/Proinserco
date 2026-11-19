@@ -16,6 +16,7 @@ const ACCIONES_CON_RESPALDO_SISTEMA: ReadonlySet<AccionAuditable> = new Set([
   'donacion.discrepancia',
   'donacion.creada',
   'consentimiento.registrado',
+  'conciliacion.alerta',
 ])
 
 function aEntradaAuditoria(fila: FilaAuditoria): EntradaAuditoria {

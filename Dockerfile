@@ -13,8 +13,12 @@ COPY packages/ui/package.json packages/ui/package.json
 COPY packages/config/package.json packages/config/package.json
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 COPY . .
-ARG NEXT_PUBLIC_TURNSTILE_SITE_KEY="1x00000000000000000000AA"
+# Sin valor por defecto: la clave de sitio se incrusta en el build y en producción debe ser la real.
+# Para una imagen local de pruebas: --build-arg EXIGIR_CLAVE_TURNSTILE_REAL=no
+ARG NEXT_PUBLIC_TURNSTILE_SITE_KEY
+ARG EXIGIR_CLAVE_TURNSTILE_REAL=si
 ENV NEXT_PUBLIC_TURNSTILE_SITE_KEY=${NEXT_PUBLIC_TURNSTILE_SITE_KEY} NEXT_TELEMETRY_DISABLED=1
+RUN EXIGIR_CLAVE_TURNSTILE_REAL=${EXIGIR_CLAVE_TURNSTILE_REAL} node scripts/verificar-clave-turnstile.mjs
 RUN pnpm build
 
 FROM node:24-alpine AS runner
