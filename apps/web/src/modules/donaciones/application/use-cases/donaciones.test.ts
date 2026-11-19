@@ -233,7 +233,7 @@ describe('confirmar / rechazar (conciliación con la pasarela)', () => {
     expect((await m.repoDonaciones.buscarPorReferencia(referencia))?.estado).toBe('pendiente')
   })
 
-  it('webhook: si no encuentra la donación por idCargo la busca por order_id y recupera el cargo (falló el UPDATE a pendiente)', async () => {
+  async function mundoSinIdCargoGuardado() {
     const m = crearMundoMemoria()
     const { referencia, urlPago } = await m.crearDonacion(solicitudDonacion())
     const idCargo = idCargoDe(urlPago)
@@ -243,6 +243,7 @@ describe('confirmar / rechazar (conciliación con la pasarela)', () => {
     const sinCargo = Donacion.reconstruir({ ...guardada.datos, estado: 'creada', idCargo: null, urlPago: null, historial: [] })
     const repoAislado = crearRepositorioDonacionesMemoria(m.reloj)
     await repoAislado.insertar(sinCargo)
+    const consultar = vi.spyOn(m.pasarela, 'consultarCargo')
     const conciliar = crearConciliarDonacion({
       donaciones: repoAislado,
       pasarela: m.pasarela,
@@ -251,15 +252,114 @@ describe('confirmar / rechazar (conciliación con la pasarela)', () => {
       auditor: { registrar: m.registrarAuditoria },
     })
     m.pasarela.resolverCargo(idCargo, 'aprobado')
+    return { referencia, idCargo, repoAislado, consultar, conciliar }
+  }
 
-    expect(await conciliar({ idCargo }, 'webhook')).toEqual({ resultado: 'no_encontrada' })
+  it('webhook: si no encuentra la donación por idCargo la busca por order_id y recupera el cargo (falló el UPDATE a pendiente)', async () => {
+    const { referencia, idCargo, repoAislado, consultar, conciliar } = await mundoSinIdCargoGuardado()
+
     expect(await conciliar({ idCargo, referenciaRespaldo: referencia }, 'webhook')).toEqual({
       resultado: 'actualizada',
       estado: 'aprobada',
     })
+    expect(consultar).toHaveBeenCalledTimes(1)
     const final = await repoAislado.buscarPorReferencia(referencia)
     expect(final?.datos.idCargo).toBe(idCargo)
     expect(final?.datos.historial.map((t) => t.hacia)).toEqual(['pendiente', 'aprobada'])
+  })
+
+  it('webhook sin order_id: consulta el cargo UNA vez, busca por su referencia y reutiliza esa consulta', async () => {
+    const { referencia, idCargo, repoAislado, consultar, conciliar } = await mundoSinIdCargoGuardado()
+
+    expect(await conciliar({ idCargo }, 'webhook')).toEqual({ resultado: 'actualizada', estado: 'aprobada' })
+    expect(consultar).toHaveBeenCalledTimes(1)
+    expect(consultar).toHaveBeenCalledWith(idCargo)
+    const final = await repoAislado.buscarPorReferencia(referencia)
+    expect(final?.datos.idCargo).toBe(idCargo)
+  })
+
+  it.each([
+    ['importe', { centavos: 100n, moneda: 'COP' as const }, 'COP'],
+    ['moneda', null, 'USD'],
+  ] as const)(
+    'webhook con id de transacción del checkout: un cargo preconsultado con %s distinto es discrepancia, no aprobación',
+    async (motivo, importe, moneda) => {
+      const m = crearMundoMemoria()
+      const { referencia } = await m.crearDonacion(solicitudDonacion())
+      // La donación guarda el id del checkout (ck…); el aviso trae el de la transacción y sin order_id.
+      const consultar = vi.spyOn(m.pasarela, 'consultarCargo').mockResolvedValue({
+        idCargo: 'tr_del_checkout',
+        referencia,
+        estado: 'aprobado',
+        importe,
+        monedaReportada: moneda,
+        metodoPago: 'pse',
+      })
+      const auditoria = vi.fn(m.registrarAuditoria)
+      const conciliar = crearConciliarDonacion({
+        donaciones: m.repoDonaciones,
+        pasarela: m.pasarela,
+        reloj: m.reloj,
+        eventos: m.eventos,
+        auditor: { registrar: auditoria },
+      })
+
+      expect(await conciliar({ idCargo: 'tr_del_checkout' }, 'webhook')).toEqual({
+        resultado: 'discrepancia',
+        estado: 'pendiente',
+      })
+      expect(consultar).toHaveBeenCalledTimes(1)
+      expect(auditoria).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accion: 'donacion.discrepancia',
+          detalles: expect.objectContaining({ motivo, monedaPasarela: moneda }),
+        }),
+      )
+    },
+  )
+
+  it('aviso con id de checkout (ck…) y sin order_id: consulta el checkout, encuentra la donación por su referencia y guarda la transacción', async () => {
+    const { referencia, repoAislado, consultar, conciliar } = await mundoSinIdCargoGuardado()
+    consultar.mockImplementation(async (id) => {
+      if (id !== 'ck_aviso_1') throw new Error(`consulta inesperada: ${id}`)
+      return {
+        idCargo: 'tr_del_ck_aviso_1',
+        referencia,
+        estado: 'aprobado',
+        importe: { centavos: 5_000_000n, moneda: 'COP' },
+        monedaReportada: 'COP',
+        metodoPago: 'pse',
+      }
+    })
+
+    expect(await conciliar({ idCargo: 'ck_aviso_1' }, 'webhook')).toEqual({ resultado: 'actualizada', estado: 'aprobada' })
+    expect(consultar).toHaveBeenCalledTimes(1)
+    const final = await repoAislado.buscarPorReferencia(referencia)
+    expect(final?.datos.idCargo).toBe('tr_del_ck_aviso_1')
+    expect(final?.datos.metodoPago).toBe('pse')
+  })
+
+  it('webhook: si el cargo consultado no trae una referencia nuestra, no busca ni toca nada', async () => {
+    const m = crearMundoMemoria()
+    vi.spyOn(m.pasarela, 'consultarCargo').mockResolvedValue({
+      idCargo: 'tr_ajeno',
+      referencia: 'PEDIDO-DE-OTRO-SISTEMA',
+      estado: 'aprobado',
+      importe: { centavos: 5_000_000n, moneda: 'COP' },
+      monedaReportada: 'COP',
+      metodoPago: 'tarjeta',
+    })
+    const buscar = vi.spyOn(m.repoDonaciones, 'buscarPorReferencia')
+    const conciliar = crearConciliarDonacion({
+      donaciones: m.repoDonaciones,
+      pasarela: m.pasarela,
+      reloj: m.reloj,
+      eventos: m.eventos,
+      auditor: { registrar: m.registrarAuditoria },
+    })
+
+    expect(await conciliar({ idCargo: 'tr_ajeno' }, 'webhook')).toEqual({ resultado: 'no_encontrada' })
+    expect(buscar).not.toHaveBeenCalled()
   })
 
   it('webhook: un order_id ajeno nunca asocia un cargo de otra donación (el order_id del cargo manda)', async () => {

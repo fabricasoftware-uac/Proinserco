@@ -74,13 +74,13 @@ describe('adaptador PasarelaOpenpay', () => {
     vi.unstubAllGlobals()
   })
 
-  it('crearCargo envía petición con Basic Auth y pesos COP enteros y valida la respuesta', async () => {
+  it('crearCargo envía petición al endpoint multimétodo /checkouts con Basic Auth y pesos COP enteros y valida la respuesta', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
-          id: 'tr_abc123',
-          status: 'CHARGE_PENDING',
-          payment_method: { url: 'https://sandbox-api.openpay.co/redirect/tr_abc123' },
+          id: 'ck_abc123',
+          status: 'available',
+          checkout_link: 'https://sandbox-api.openpay.co/ck/NC5bUY54aYlT',
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       ),
@@ -91,30 +91,114 @@ describe('adaptador PasarelaOpenpay', () => {
     const res = await pasarela.crearCargo(solicitudBase())
 
     expect(res).toEqual({
-      idCargo: 'tr_abc123',
-      urlPago: 'https://sandbox-api.openpay.co/redirect/tr_abc123',
+      idCargo: 'ck_abc123',
+      urlPago: 'https://sandbox-api.openpay.co/ck/NC5bUY54aYlT',
     })
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(url).toBe('https://sandbox-api.openpay.co/v1/m_test_123/charges')
+    expect(url).toBe('https://sandbox-api.openpay.co/v1/m_test_123/checkouts')
     expect(init.method).toBe('POST')
     expect((init.headers as Record<string, string>).Authorization).toBe(
       `Basic ${Buffer.from('sk_privada_super_secreta:').toString('base64')}`,
     )
     expect(JSON.parse(String(init.body))).toEqual({
-      method: 'card',
       amount: 50_000,
       currency: 'COP',
       description: 'Donación a la Fundación Proinserco',
       order_id: 'DON-000000000000000000001',
-      confirm: false,
-      send_email: false,
+      iva: '0',
+      send_email: 'false',
       redirect_url: 'https://proinserco.test/donar/resultado?referencia=DON-000000000000000000001',
       customer: {
         name: 'Ana María',
         last_name: 'Muñoz',
         email: 'ana.munoz@correo.test',
       },
+    })
+  })
+
+  it('consultarCargo soporta checkouts multimétodo (ck...) disponibles y completados por PSE o efectivo', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: 'ck_disponible_1',
+            order_id: 'DON-000000000000000000001',
+            status: 'available',
+            amount: 50_000,
+            currency: 'COP',
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: 'ck_pse_1',
+            order_id: 'DON-000000000000000000001',
+            status: 'completed',
+            amount: 50_000,
+            currency: 'COP',
+            transaction: {
+              id: 'tr_pse_99',
+              order_id: 'DON-000000000000000000001',
+              status: 'completed',
+              amount: 50_000,
+              method: 'bank_account',
+            },
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: 'ck_efectivo_1',
+            order_id: 'DON-000000000000000000001',
+            status: 'available',
+            amount: 50_000,
+            currency: 'COP',
+            transaction: {
+              id: 'tr_store_88',
+              order_id: 'DON-000000000000000000001',
+              status: 'in_progress',
+              amount: 50_000,
+              method: 'paynet_charge',
+            },
+          }),
+          { status: 200 },
+        ),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const pasarela = crearPasarelaOpenpay(CONFIG_SANDBOX)
+
+    expect(await pasarela.consultarCargo('ck_disponible_1')).toEqual({
+      idCargo: 'ck_disponible_1',
+      referencia: 'DON-000000000000000000001',
+      estado: 'pendiente',
+      importe: { centavos: 5_000_000n, moneda: 'COP' },
+      monedaReportada: 'COP',
+      metodoPago: null,
+    })
+
+    expect(await pasarela.consultarCargo('ck_pse_1')).toEqual({
+      idCargo: 'tr_pse_99',
+      referencia: 'DON-000000000000000000001',
+      estado: 'aprobado',
+      importe: { centavos: 5_000_000n, moneda: 'COP' },
+      monedaReportada: 'COP',
+      metodoPago: 'pse',
+    })
+
+    expect(await pasarela.consultarCargo('ck_efectivo_1')).toEqual({
+      idCargo: 'tr_store_88',
+      referencia: 'DON-000000000000000000001',
+      estado: 'pendiente',
+      importe: { centavos: 5_000_000n, moneda: 'COP' },
+      monedaReportada: 'COP',
+      metodoPago: 'efectivo',
     })
   })
 
@@ -426,5 +510,163 @@ describe('adaptador PasarelaOpenpay', () => {
       'creation%5Bgte%5D=2026-11-16&creation%5Blte%5D=2026-11-18&offset=100&limit=100',
     )
     expect(alAdvertir).toHaveBeenCalledTimes(1)
+  })
+
+  it('consultarCargo de un id que no es ck… va directo a /charges/{id}', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: 'tr_directo',
+          order_id: 'DON-000000000000000000001',
+          status: 'completed',
+          amount: 50_000,
+          currency: 'COP',
+          method: 'bank_account',
+        }),
+        { status: 200 },
+      ),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const cargo = await crearPasarelaOpenpay(CONFIG_SANDBOX).consultarCargo('tr_directo')
+    expect(cargo).toMatchObject({ idCargo: 'tr_directo', estado: 'aprobado', metodoPago: 'pse', monedaReportada: 'COP' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe('https://sandbox-api.openpay.co/v1/m_test_123/charges/tr_directo')
+  })
+
+  it('consultarCargo de un checkout ck… usa /checkouts/{id}, manda el estado de la transacción embebida y toma la referencia del checkout si falta', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: 'ck_tx_1',
+          order_id: 'DON-000000000000000000001',
+          // El checkout puede seguir «available»: lo que confirma el pago es la transacción.
+          status: 'available',
+          amount: 50_000,
+          currency: 'COP',
+          transaction: { id: 'tr_emb_1', status: 'completed', amount: 50_000, method: 'store' },
+        }),
+        { status: 200 },
+      ),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const cargo = await crearPasarelaOpenpay(CONFIG_SANDBOX).consultarCargo('ck_tx_1')
+    expect(cargo).toEqual({
+      idCargo: 'tr_emb_1',
+      referencia: 'DON-000000000000000000001',
+      estado: 'aprobado',
+      importe: { centavos: 5_000_000n, moneda: 'COP' },
+      monedaReportada: 'COP',
+      metodoPago: 'efectivo',
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe('https://sandbox-api.openpay.co/v1/m_test_123/checkouts/ck_tx_1')
+  })
+
+  it('checkout con transacción de tarjeta sin detalle: amplía con /charges/{tx} solo con marca y últimos 4', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: 'ck_card_1',
+            order_id: 'DON-000000000000000000001',
+            status: 'completed',
+            amount: 50_000,
+            currency: 'COP',
+            transaction: { id: 'tr_card_1', status: 'completed', amount: 50_000, method: 'card' },
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: 'tr_card_1',
+            order_id: 'DON-000000000000000000001',
+            status: 'completed',
+            amount: 50_000,
+            currency: 'COP',
+            method: 'card',
+            card: { brand: 'Visa', card_number: '4111111111111111', cvv2: '123' },
+          }),
+          { status: 200 },
+        ),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const cargo = await crearPasarelaOpenpay(CONFIG_SANDBOX).consultarCargo('ck_card_1')
+    expect(cargo.metodoPago).toBe('tarjeta · visa · •••• 1111')
+    expect(JSON.stringify(cargo, (_, v) => (typeof v === 'bigint' ? String(v) : v))).not.toMatch(/411111|123/)
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe('https://sandbox-api.openpay.co/v1/m_test_123/charges/tr_card_1')
+  })
+
+  it('un checkout SIN transacción nunca aprueba: «completed» se trata como pendiente y se avisa', async () => {
+    const alAdvertir = vi.fn()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: 'ck_sin_tx',
+            order_id: 'DON-000000000000000000001',
+            status: 'completed',
+            amount: 50_000,
+            currency: 'COP',
+          }),
+          { status: 200 },
+        ),
+      ),
+    )
+
+    const cargo = await crearPasarelaOpenpay({ ...CONFIG_SANDBOX, alAdvertir }).consultarCargo('ck_sin_tx')
+    expect(cargo.estado).toBe('pendiente')
+    expect(alAdvertir).toHaveBeenCalledWith(expect.stringContaining('sin transacción'), {
+      idCargo: 'ck_sin_tx',
+      estado: 'aprobado',
+    })
+  })
+
+  it('checkout con moneda distinta de COP devuelve importe null y la moneda reportada (discrepancia, sin lanzar)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: 'ck_usd',
+            order_id: 'DON-000000000000000000001',
+            status: 'available',
+            amount: 12,
+            currency: 'USD',
+            transaction: { id: 'tr_usd_1', status: 'completed', amount: 12, method: 'bank_account' },
+          }),
+          { status: 200 },
+        ),
+      ),
+    )
+
+    const cargo = await crearPasarelaOpenpay(CONFIG_SANDBOX).consultarCargo('ck_usd')
+    expect(cargo).toMatchObject({ idCargo: 'tr_usd_1', estado: 'aprobado', importe: null, monedaReportada: 'USD' })
+  })
+
+  it('una transacción sin moneda (ni en ella ni en su checkout) queda con importe null en el listado', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify([{ id: 'tr_sin_moneda', order_id: 'DON-000000000000000000001', status: 'completed', amount: 50_000 }]),
+            { status: 200 },
+          ),
+        ),
+    )
+
+    const cargos = await crearPasarelaOpenpay(CONFIG_SANDBOX).listarCargos({
+      desde: new Date('2026-11-16T15:00:00Z'),
+      hasta: new Date('2026-11-16T15:00:00Z'),
+    })
+    expect(cargos).toEqual([expect.objectContaining({ idCargo: 'tr_sin_moneda', importe: null, monedaReportada: '' })])
   })
 })

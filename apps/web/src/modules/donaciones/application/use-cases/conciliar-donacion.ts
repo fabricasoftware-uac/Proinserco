@@ -4,6 +4,7 @@ import type { Reloj } from '@/shared/application/ports/reloj'
 import { ACTOR_SISTEMA } from '@/shared/domain/actor'
 import { importesIguales } from '@/shared/domain/importe'
 import type { Donacion } from '../../domain/donacion'
+import { ReferenciaDonacion } from '../../domain/esquemas'
 import { type EstadoDonacion, esTransicionValida, type OrigenTransicion } from '../../domain/estado-donacion'
 import type { CargoConsultado, EstadoCargo, PasarelaPagos } from '../ports/pasarela-pagos'
 import type { RepositorioDonaciones } from '../ports/repositorio-donaciones'
@@ -58,13 +59,14 @@ export function crearConciliarDonacion(deps: Dependencias) {
     id: IdentificadorConciliacion,
     origen: OrigenTransicion = 'conciliacion',
   ): Promise<ResultadoConciliacion> {
-    const donacion = await buscarDonacion(deps, id)
+    const { donacion, cargoPreconsultado } = await buscarDonacion(deps, id)
     if (!donacion) return { resultado: 'no_encontrada' }
 
     // Sin idCargo guardado (falló el UPDATE tras crear el cargo): se recupera el cargo
     // consultando a la pasarela, por el id que trae el aviso o por nuestra referencia.
+    // Si ya se consultó para encontrar la donación, se reutiliza: Openpay se consulta una vez.
     const sinIdCargo = !donacion.datos.idCargo
-    const cargo = await obtenerCargo(deps, donacion, id)
+    const cargo = cargoPreconsultado ?? (await obtenerCargo(deps, donacion, id))
     if (!cargo) return { resultado: 'sin_cargo', estado: donacion.estado }
     const destino = ESTADO_POR_CARGO[cargo.estado]
 
@@ -103,11 +105,30 @@ export function crearConciliarDonacion(deps: Dependencias) {
   }
 }
 
-async function buscarDonacion(deps: Dependencias, id: IdentificadorConciliacion): Promise<Donacion | null> {
-  if ('referencia' in id) return deps.donaciones.buscarPorReferencia(id.referencia)
+type DonacionLocalizada = Readonly<{ donacion: Donacion | null; cargoPreconsultado: CargoConsultado | null }>
+
+/**
+ * Localiza la donación: por referencia, por idCargo guardado o por la referencia de respaldo
+ * del aviso. Con checkout multimétodo guardamos el id del checkout (`ck…`) y el aviso trae el
+ * de la transacción (`tr…`), así que si nada de eso basta se CONSULTA el cargo a la pasarela
+ * y se busca por su `order_id` (nunca por datos del aviso). Ese cargo se devuelve para no
+ * consultarlo otra vez; la verificación de referencia, importe y moneda se hace igual después.
+ */
+async function buscarDonacion(deps: Dependencias, id: IdentificadorConciliacion): Promise<DonacionLocalizada> {
+  const sinCargo = (donacion: Donacion | null): DonacionLocalizada => ({ donacion, cargoPreconsultado: null })
+  if ('referencia' in id) return sinCargo(await deps.donaciones.buscarPorReferencia(id.referencia))
+
   const porCargo = await deps.donaciones.buscarPorIdCargo(id.idCargo)
-  if (porCargo || !id.referenciaRespaldo) return porCargo
-  return deps.donaciones.buscarPorReferencia(id.referenciaRespaldo)
+  if (porCargo) return sinCargo(porCargo)
+  if (id.referenciaRespaldo) {
+    const porRespaldo = await deps.donaciones.buscarPorReferencia(id.referenciaRespaldo)
+    if (porRespaldo) return sinCargo(porRespaldo)
+  }
+
+  const cargo = await deps.pasarela.consultarCargo(id.idCargo)
+  if (!ReferenciaDonacion.safeParse(cargo.referencia).success) return sinCargo(null)
+  const donacion = await deps.donaciones.buscarPorReferencia(cargo.referencia)
+  return { donacion, cargoPreconsultado: donacion ? cargo : null }
 }
 
 async function obtenerCargo(
