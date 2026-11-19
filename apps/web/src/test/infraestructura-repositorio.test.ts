@@ -38,7 +38,15 @@ describe('configuración de build, CI y entorno', () => {
 
   it('.env.example documenta (sin valores) las variables nuevas, cada una con su comentario', () => {
     const lineas = leer('.env.example').split(/\r?\n/)
-    for (const variable of ['ALTA_USUARIO_CONTRASENA', 'TEST_DATABASE_URL', 'TEST_REDIS_URL', 'ALERTAS_WEBHOOK_URL']) {
+    for (const variable of [
+      'ALTA_USUARIO_CONTRASENA',
+      'TEST_DATABASE_URL',
+      'TEST_REDIS_URL',
+      'ALERTAS_WEBHOOK_URL',
+      'RESEND_API_KEY',
+      'RESEND_DESDE',
+      'RESEND_CORREO_INTERNO',
+    ]) {
       const i = lineas.findIndex((l) => l.startsWith(`${variable}=`))
       expect(i, variable).toBeGreaterThan(0)
       expect(lineas[i], variable).toBe(`${variable}=""`)
@@ -49,6 +57,7 @@ describe('configuración de build, CI y entorno', () => {
   it('los adaptadores con secretos de servidor importan server-only', () => {
     for (const ruta of [
       'apps/web/src/modules/donaciones/infrastructure/pasarela-openpay.ts',
+      'apps/web/src/modules/donaciones/infrastructure/correos-donacion-resend.ts',
       'apps/web/src/shared/infrastructure/limitador-redis.ts',
       'apps/web/src/shared/infrastructure/notificador-webhook.ts',
     ]) {

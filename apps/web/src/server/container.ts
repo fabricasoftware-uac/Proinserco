@@ -12,6 +12,7 @@ import { crearCrearDonacion } from '@/modules/donaciones/application/use-cases/c
 import { crearListarDonaciones } from '@/modules/donaciones/application/use-cases/listar-donaciones'
 import { crearObtenerDonacion } from '@/modules/donaciones/application/use-cases/obtener-donacion'
 import { crearObtenerIndicadores } from '@/modules/donaciones/application/use-cases/obtener-indicadores'
+import { crearEnviadorCorreosResend } from '@/modules/donaciones/infrastructure/correos-donacion-resend'
 import { crearPasarelaOpenpay } from '@/modules/donaciones/infrastructure/pasarela-openpay'
 import { crearPasarelaSimulada, type PasarelaSimulada } from '@/modules/donaciones/infrastructure/pasarela-simulada'
 import { crearRepositorioDonacionesMemoria } from '@/modules/donaciones/infrastructure/repositorio-donaciones-memoria'
@@ -130,6 +131,24 @@ function crearContenedor(env: Env) {
     },
   }
   const conciliarDonacion = crearConciliarDonacion({ donaciones: repoDonaciones, pasarela, reloj, eventos, auditor })
+  if (env.RESEND_API_KEY && env.RESEND_DESDE) {
+    const enviadorCorreos = crearEnviadorCorreosResend({
+      apiKey: env.RESEND_API_KEY,
+      desde: env.RESEND_DESDE,
+      urlBase: env.APP_URL,
+      correoInterno: env.RESEND_CORREO_INTERNO,
+      alFallar: (motivo, contexto) => registro.error('No se pudo enviar correo de donación por Resend', { motivo, ...contexto }),
+    })
+    eventos.suscribir('donacion.aprobada', async (evento) => {
+      const referencia = typeof evento.datos.referencia === 'string' ? evento.datos.referencia : null
+      if (!referencia) return
+      const donacion = esMemoria
+        ? await repoDonaciones.buscarPorReferencia(referencia)
+        : await ejecutarConContextoDb({ modo: 'sistema' }, () => repoDonaciones.buscarPorReferencia(referencia))
+      if (!donacion) return
+      await enviadorCorreos.enviarDonacionAprobada(donacion)
+    })
+  }
   // Alertas: siempre al log; además a un webhook (chat, relay de correo) si se configura.
   const canalesAlerta: Notificador[] = [crearNotificadorRegistro(registro)]
   if (env.ALERTAS_WEBHOOK_URL) {

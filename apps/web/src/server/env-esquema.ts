@@ -82,6 +82,11 @@ export const EsquemaEnv = z
       .url()
       .refine((u) => new URL(u).protocol === 'https:', 'ALERTAS_WEBHOOK_URL debe usar https://')
       .optional(),
+
+    // Correos transaccionales (Resend). Opcionales: si se define RESEND_API_KEY se exige RESEND_DESDE.
+    RESEND_API_KEY: z.string().min(1).optional(),
+    RESEND_DESDE: z.string().min(3).optional(),
+    RESEND_CORREO_INTERNO: z.email().optional(),
   })
   .superRefine((e, ctx) => {
     const exigir = (claves: readonly (keyof typeof e)[], motivo: string) => {
@@ -167,6 +172,12 @@ export const EsquemaEnv = z
     }
     if (e.DONACION_MONTO_MINIMO_COP >= e.DONACION_MONTO_MAXIMO_COP) {
       ctx.addIssue({ code: 'custom', path: ['DONACION_MONTO_MINIMO_COP'], message: 'El mínimo debe ser menor que el máximo' })
+    }
+    if (e.RESEND_API_KEY && !e.RESEND_DESDE) {
+      ctx.addIssue({ code: 'custom', path: ['RESEND_DESDE'], message: 'Obligatoria cuando se define RESEND_API_KEY' })
+    }
+    if (e.RESEND_DESDE && !e.RESEND_API_KEY) {
+      ctx.addIssue({ code: 'custom', path: ['RESEND_API_KEY'], message: 'Obligatoria cuando se define RESEND_DESDE' })
     }
   })
 
