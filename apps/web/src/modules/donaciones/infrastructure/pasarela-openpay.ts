@@ -12,6 +12,7 @@ const HOST_SANDBOX = 'sandbox-api.openpay.co'
 const HOSTS_PRODUCCION = ['api.openpay.co', 'checkout.openpay.co'] as const
 
 const ESTADOS_OPENPAY: Readonly<Record<string, EstadoCargo>> = {
+  available: 'pendiente',
   charge_pending: 'pendiente',
   in_progress: 'pendiente',
   completed: 'aprobado',
@@ -28,25 +29,32 @@ const RespuestaErrorOpenpay = z.object({
   error_code: z.number().int().optional(),
 })
 
-const RespuestaCrearCargo = z.object({
-  id: z.string().min(1).max(120),
-  status: z
-    .string()
-    .transform((s) => s.trim().toLowerCase())
-    .refine((s) => s === 'charge_pending' || s === 'in_progress', {
-      message: 'Estado inicial de cargo Openpay inesperado',
-    }),
-  payment_method: z.object({
-    url: z.string().min(1).max(2048),
-  }),
-})
+const RespuestaCrearCargo = z
+  .object({
+    id: z.string().min(1).max(120),
+    status: z
+      .string()
+      .transform((s) => s.trim().toLowerCase())
+      .refine((s) => s === 'available' || s === 'charge_pending' || s === 'in_progress', {
+        message: 'Estado inicial de cargo Openpay inesperado',
+      }),
+    checkout_link: z.string().min(1).max(2048).optional(),
+    payment_method: z
+      .object({
+        url: z.string().min(1).max(2048),
+      })
+      .optional(),
+  })
+  .refine((d) => Boolean(d.checkout_link ?? d.payment_method?.url), {
+    message: 'Falta URL de redirección en respuesta de Openpay',
+  })
 
 const RespuestaConsultarCargo = z.object({
   id: z.string().min(1).max(120),
   order_id: z.string().max(120).nullable().optional(),
   status: z.string().min(1).max(60),
   amount: z.number(),
-  currency: z.string().min(1).max(10),
+  currency: z.string().min(1).max(10).optional(),
   method: z.string().max(40).nullable().optional(),
   card: z
     .object({
@@ -55,6 +63,15 @@ const RespuestaConsultarCargo = z.object({
     })
     .nullable()
     .optional(),
+})
+
+const RespuestaConsultarCheckout = z.object({
+  id: z.string().min(1).max(120),
+  order_id: z.string().max(120).nullable().optional(),
+  status: z.string().min(1).max(60),
+  amount: z.number(),
+  currency: z.string().min(1).max(10),
+  transaction: RespuestaConsultarCargo.nullable().optional(),
 })
 
 export type ConfiguracionOpenpay = Readonly<{
@@ -169,7 +186,16 @@ async function leerJsonOpenpay(respuesta: Response, operacion: string): Promise<
 
 function extraerMetodoPagoSeguro(datos: z.infer<typeof RespuestaConsultarCargo>): string | null {
   const metodoCrudo = datos.method?.trim().toLowerCase()
-  const base = metodoCrudo === 'card' ? 'tarjeta' : metodoCrudo === 'bank_account' ? 'pse' : metodoCrudo ? metodoCrudo : null
+  const base =
+    metodoCrudo === 'card'
+      ? 'tarjeta'
+      : metodoCrudo === 'bank_account' || metodoCrudo === 'pse'
+        ? 'pse'
+        : metodoCrudo === 'store' || metodoCrudo === 'paynet_charge'
+          ? 'efectivo'
+          : metodoCrudo
+            ? metodoCrudo
+            : null
 
   if (!datos.card) return base ? base.slice(0, 60) : null
 
@@ -185,7 +211,8 @@ function extraerMetodoPagoSeguro(datos: z.infer<typeof RespuestaConsultarCargo>)
 }
 
 /**
- * Adaptador real de Openpay Colombia (checkout hospedado por redirección).
+ * Adaptador real de Openpay Colombia (checkout hospedado multimétodo por redirección:
+ * tarjeta de crédito/débito, PSE y efectivo/corresponsales).
  * No usa SDK externo: habla por `fetch` con Basic Auth sobre HTTPS y valida
  * todas las respuestas y URLs de salida en servidor.
  */
@@ -199,19 +226,72 @@ export function crearPasarelaOpenpay(configuracion: ConfiguracionOpenpay): Pasar
     }
   }
 
+  const traducirEstado = (idCargo: string, statusCrudo: string): EstadoCargo => {
+    const estadoOpenpay = statusCrudo.trim().toLowerCase()
+    const estado = Object.hasOwn(ESTADOS_OPENPAY, estadoOpenpay) ? ESTADOS_OPENPAY[estadoOpenpay] : undefined
+    if (!estado) {
+      configuracion.alAdvertir?.('Openpay devolvió un estado de cargo desconocido', {
+        idCargo,
+        estado: estadoOpenpay,
+      })
+      throw new Error(`Openpay consultarCargo devolvió estado desconocido: ${estadoOpenpay}`)
+    }
+    return estado
+  }
+
+  const consultarTransaccionDirecta = async (idTransaccion: string): Promise<CargoConsultado> => {
+    const url = `${urlBaseApi}/v1/${encodeURIComponent(configuracion.merchantId)}/charges/${encodeURIComponent(idTransaccion)}`
+    const respuesta = await ejecutarFetchOpenpay(
+      url,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: autorizacion,
+          Accept: 'application/json',
+        },
+      },
+      'consultarCargo',
+    )
+
+    if (!respuesta.ok) {
+      const errorCode = await leerCodigoErrorOpenpay(respuesta)
+      const sufijo = errorCode !== undefined ? ` error_code=${errorCode}` : ''
+      throw new Error(`Openpay consultarCargo falló con HTTP ${respuesta.status}${sufijo}`)
+    }
+
+    const json = await leerJsonOpenpay(respuesta, 'consultarCargo')
+    const parseado = RespuestaConsultarCargo.safeParse(json)
+    if (!parseado.success) {
+      throw new Error('Openpay consultarCargo devolvió una respuesta inesperada')
+    }
+
+    const datos = parseado.data
+    if (!datos.currency) {
+      throw new Error('Openpay consultarCargo devolvió una respuesta inesperada')
+    }
+    const estado = traducirEstado(idTransaccion, datos.status)
+
+    return {
+      idCargo: datos.id,
+      referencia: datos.order_id ?? '',
+      estado,
+      importe: aImporteDesdeOpenpay(datos.amount, datos.currency),
+      metodoPago: extraerMetodoPagoSeguro(datos),
+    }
+  }
+
   return {
     async crearCargo(solicitud) {
       exigirConfiguracion()
       const amount = aPesosOpenpay(solicitud.importe)
-      const url = `${urlBaseApi}/v1/${encodeURIComponent(configuracion.merchantId)}/charges`
+      const url = `${urlBaseApi}/v1/${encodeURIComponent(configuracion.merchantId)}/checkouts`
       const cuerpo = JSON.stringify({
-        method: 'card',
         amount,
         currency: 'COP',
         description: solicitud.descripcion,
         order_id: solicitud.referencia,
-        confirm: false,
-        send_email: false,
+        iva: '0',
+        send_email: 'false',
         redirect_url: solicitud.urlRetorno,
         customer: {
           name: solicitud.pagador.nombres,
@@ -249,7 +329,8 @@ export function crearPasarelaOpenpay(configuracion: ConfiguracionOpenpay): Pasar
         throw new Error('Openpay crearCargo devolvió una respuesta inesperada')
       }
 
-      const urlPago = validarUrlPagoOpenpay(parseado.data.payment_method.url, urlBaseApi, configuracion.origenCheckoutExtra)
+      const urlCruda = parseado.data.checkout_link ?? parseado.data.payment_method?.url ?? ''
+      const urlPago = validarUrlPagoOpenpay(urlCruda, urlBaseApi, configuracion.origenCheckoutExtra)
       return { idCargo: parseado.data.id, urlPago }
     },
 
@@ -259,7 +340,11 @@ export function crearPasarelaOpenpay(configuracion: ConfiguracionOpenpay): Pasar
         throw new Error('Identificador de cargo Openpay inválido')
       }
 
-      const url = `${urlBaseApi}/v1/${encodeURIComponent(configuracion.merchantId)}/charges/${encodeURIComponent(idCargo)}`
+      if (!idCargo.toLowerCase().startsWith('ck')) {
+        return consultarTransaccionDirecta(idCargo)
+      }
+
+      const url = `${urlBaseApi}/v1/${encodeURIComponent(configuracion.merchantId)}/checkouts/${encodeURIComponent(idCargo)}`
       const respuesta = await ejecutarFetchOpenpay(
         url,
         {
@@ -279,28 +364,38 @@ export function crearPasarelaOpenpay(configuracion: ConfiguracionOpenpay): Pasar
       }
 
       const json = await leerJsonOpenpay(respuesta, 'consultarCargo')
-      const parseado = RespuestaConsultarCargo.safeParse(json)
+      const parseado = RespuestaConsultarCheckout.safeParse(json)
       if (!parseado.success) {
         throw new Error('Openpay consultarCargo devolvió una respuesta inesperada')
       }
 
-      const datos = parseado.data
-      const estadoOpenpay = datos.status.trim().toLowerCase()
-      const estado = Object.hasOwn(ESTADOS_OPENPAY, estadoOpenpay) ? ESTADOS_OPENPAY[estadoOpenpay] : undefined
-      if (!estado) {
-        configuracion.alAdvertir?.('Openpay devolvió un estado de cargo desconocido', {
-          idCargo,
-          estado: estadoOpenpay,
-        })
-        throw new Error(`Openpay consultarCargo devolvió estado desconocido: ${estadoOpenpay}`)
+      const checkout = parseado.data
+      if (checkout.transaction) {
+        const tx = checkout.transaction
+        if (tx.method?.trim().toLowerCase() === 'card' && !tx.card && PATRON_ID_CARGO.test(tx.id)) {
+          try {
+            return await consultarTransaccionDirecta(tx.id)
+          } catch {
+            // Si no se puede ampliar el detalle de tarjeta, usamos la transacción embebida en el checkout.
+          }
+        }
+        const estadoTx = traducirEstado(tx.id, tx.status)
+        return {
+          idCargo: tx.id,
+          referencia: tx.order_id ?? checkout.order_id ?? '',
+          estado: estadoTx,
+          importe: aImporteDesdeOpenpay(tx.amount, tx.currency ?? checkout.currency),
+          metodoPago: extraerMetodoPagoSeguro(tx),
+        }
       }
 
+      const estadoCheckout = traducirEstado(checkout.id, checkout.status)
       return {
-        idCargo: datos.id,
-        referencia: datos.order_id ?? '',
-        estado,
-        importe: aImporteDesdeOpenpay(datos.amount, datos.currency),
-        metodoPago: extraerMetodoPagoSeguro(datos),
+        idCargo: checkout.id,
+        referencia: checkout.order_id ?? '',
+        estado: estadoCheckout,
+        importe: aImporteDesdeOpenpay(checkout.amount, checkout.currency),
+        metodoPago: null,
       }
     },
   }

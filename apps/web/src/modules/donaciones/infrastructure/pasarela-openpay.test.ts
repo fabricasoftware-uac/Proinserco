@@ -72,13 +72,13 @@ describe('adaptador PasarelaOpenpay', () => {
     vi.unstubAllGlobals()
   })
 
-  it('crearCargo envía petición con Basic Auth y pesos COP enteros y valida la respuesta', async () => {
+  it('crearCargo envía petición al endpoint multimétodo /checkouts con Basic Auth y pesos COP enteros y valida la respuesta', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
-          id: 'tr_abc123',
-          status: 'CHARGE_PENDING',
-          payment_method: { url: 'https://sandbox-api.openpay.co/redirect/tr_abc123' },
+          id: 'ck_abc123',
+          status: 'available',
+          checkout_link: 'https://sandbox-api.openpay.co/ck/NC5bUY54aYlT',
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       ),
@@ -89,30 +89,111 @@ describe('adaptador PasarelaOpenpay', () => {
     const res = await pasarela.crearCargo(solicitudBase())
 
     expect(res).toEqual({
-      idCargo: 'tr_abc123',
-      urlPago: 'https://sandbox-api.openpay.co/redirect/tr_abc123',
+      idCargo: 'ck_abc123',
+      urlPago: 'https://sandbox-api.openpay.co/ck/NC5bUY54aYlT',
     })
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(url).toBe('https://sandbox-api.openpay.co/v1/m_test_123/charges')
+    expect(url).toBe('https://sandbox-api.openpay.co/v1/m_test_123/checkouts')
     expect(init.method).toBe('POST')
     expect((init.headers as Record<string, string>).Authorization).toBe(
       `Basic ${Buffer.from('sk_privada_super_secreta:').toString('base64')}`,
     )
     expect(JSON.parse(String(init.body))).toEqual({
-      method: 'card',
       amount: 50_000,
       currency: 'COP',
       description: 'Donación a la Fundación Proinserco',
       order_id: 'DON-000000000000000000001',
-      confirm: false,
-      send_email: false,
+      iva: '0',
+      send_email: 'false',
       redirect_url: 'https://proinserco.test/donar/resultado?referencia=DON-000000000000000000001',
       customer: {
         name: 'Ana María',
         last_name: 'Muñoz',
         email: 'ana.munoz@correo.test',
       },
+    })
+  })
+
+  it('consultarCargo soporta checkouts multimétodo (ck...) disponibles y completados por PSE o efectivo', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: 'ck_disponible_1',
+            order_id: 'DON-000000000000000000001',
+            status: 'available',
+            amount: 50_000,
+            currency: 'COP',
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: 'ck_pse_1',
+            order_id: 'DON-000000000000000000001',
+            status: 'completed',
+            amount: 50_000,
+            currency: 'COP',
+            transaction: {
+              id: 'tr_pse_99',
+              order_id: 'DON-000000000000000000001',
+              status: 'completed',
+              amount: 50_000,
+              method: 'bank_account',
+            },
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: 'ck_efectivo_1',
+            order_id: 'DON-000000000000000000001',
+            status: 'available',
+            amount: 50_000,
+            currency: 'COP',
+            transaction: {
+              id: 'tr_store_88',
+              order_id: 'DON-000000000000000000001',
+              status: 'in_progress',
+              amount: 50_000,
+              method: 'paynet_charge',
+            },
+          }),
+          { status: 200 },
+        ),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const pasarela = crearPasarelaOpenpay(CONFIG_SANDBOX)
+
+    expect(await pasarela.consultarCargo('ck_disponible_1')).toEqual({
+      idCargo: 'ck_disponible_1',
+      referencia: 'DON-000000000000000000001',
+      estado: 'pendiente',
+      importe: { centavos: 5_000_000n, moneda: 'COP' },
+      metodoPago: null,
+    })
+
+    expect(await pasarela.consultarCargo('ck_pse_1')).toEqual({
+      idCargo: 'tr_pse_99',
+      referencia: 'DON-000000000000000000001',
+      estado: 'aprobado',
+      importe: { centavos: 5_000_000n, moneda: 'COP' },
+      metodoPago: 'pse',
+    })
+
+    expect(await pasarela.consultarCargo('ck_efectivo_1')).toEqual({
+      idCargo: 'tr_store_88',
+      referencia: 'DON-000000000000000000001',
+      estado: 'pendiente',
+      importe: { centavos: 5_000_000n, moneda: 'COP' },
+      metodoPago: 'efectivo',
     })
   })
 

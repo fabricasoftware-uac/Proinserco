@@ -52,14 +52,23 @@ export function crearConciliarDonacion(deps: Dependencias) {
     id: IdentificadorConciliacion,
     origen: OrigenTransicion = 'conciliacion',
   ): Promise<ResultadoConciliacion> {
-    const donacion =
+    let donacion =
       'referencia' in id
         ? await deps.donaciones.buscarPorReferencia(id.referencia)
         : await deps.donaciones.buscarPorIdCargo(id.idCargo)
+    let cargoPreconsultado: Awaited<ReturnType<PasarelaPagos['consultarCargo']>> | null = null
+
+    if (!donacion && 'idCargo' in id) {
+      cargoPreconsultado = await deps.pasarela.consultarCargo(id.idCargo)
+      if (cargoPreconsultado.referencia) {
+        donacion = await deps.donaciones.buscarPorReferencia(cargoPreconsultado.referencia)
+      }
+    }
+
     if (!donacion) return { resultado: 'no_encontrada' }
     if (!donacion.datos.idCargo) return { resultado: 'sin_cargo', estado: donacion.estado }
 
-    const cargo = await deps.pasarela.consultarCargo(donacion.datos.idCargo)
+    const cargo = cargoPreconsultado ?? (await deps.pasarela.consultarCargo(donacion.datos.idCargo))
     const destino = ESTADO_POR_CARGO[cargo.estado]
 
     if (cargo.referencia !== donacion.datos.referencia || !importesIguales(cargo.importe, donacion.datos.importe)) {
