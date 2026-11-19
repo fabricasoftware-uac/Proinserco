@@ -11,12 +11,16 @@
 const TURNSTILE = 'https://challenges.cloudflare.com'
 const OPENPAY_SANDBOX = 'https://sandbox-api.openpay.co'
 const OPENPAY_PRODUCCION = ['https://api.openpay.co', 'https://checkout.openpay.co'] as const
+const MERCADOPAGO_PRODUCCION = ['https://www.mercadopago.com.co', 'https://www.mercadopago.com'] as const
+const MERCADOPAGO_SANDBOX = ['https://sandbox.mercadopago.com.co', 'https://sandbox.mercadopago.com'] as const
 
 export type OpcionesCsp = Readonly<{
   nonce: string
   esDesarrollo: boolean
   esHttps: boolean
+  pasarela?: 'openpay' | 'mercadopago' | undefined
   openpaySandbox?: boolean | undefined
+  mercadopagoSandbox?: boolean | undefined
   origenCheckoutOpenpay?: string | undefined
 }>
 
@@ -33,12 +37,20 @@ export function normalizarOrigenHttps(valor: string | undefined): string | null 
   }
 }
 
-export function construirCsp({ nonce, esDesarrollo, esHttps, openpaySandbox, origenCheckoutOpenpay }: OpcionesCsp): string {
-  const origenesFormAction = new Set<string>([
-    "'self'",
-    ...(esDesarrollo ? [OPENPAY_SANDBOX] : OPENPAY_PRODUCCION),
-    ...(openpaySandbox ? [OPENPAY_SANDBOX] : []),
-  ])
+export function construirCsp({
+  nonce,
+  esDesarrollo,
+  esHttps,
+  pasarela = 'openpay',
+  openpaySandbox,
+  mercadopagoSandbox,
+  origenCheckoutOpenpay,
+}: OpcionesCsp): string {
+  const origenesPasarela =
+    pasarela === 'mercadopago'
+      ? [...MERCADOPAGO_PRODUCCION, ...(esDesarrollo || mercadopagoSandbox ? MERCADOPAGO_SANDBOX : [])]
+      : [...(esDesarrollo ? [OPENPAY_SANDBOX] : OPENPAY_PRODUCCION), ...(openpaySandbox ? [OPENPAY_SANDBOX] : [])]
+  const origenesFormAction = new Set<string>(["'self'", ...origenesPasarela])
   const origenExtra = normalizarOrigenHttps(origenCheckoutOpenpay)
   if (origenExtra) origenesFormAction.add(origenExtra)
 

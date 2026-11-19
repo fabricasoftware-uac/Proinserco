@@ -113,12 +113,15 @@ export async function proxy(request: NextRequest) {
   }
 
   const nonce = generarNonce()
+  const pasarela = process.env.PASARELA === 'mercadopago' ? 'mercadopago' : 'openpay'
   const csp = construirCsp({
     nonce,
     esDesarrollo: process.env.NODE_ENV !== 'production',
     esHttps,
+    pasarela,
     openpaySandbox:
       process.env.OPENPAY_SANDBOX_EN_PRODUCCION === 'si' && process.env.OPENPAY_API_URL === 'https://sandbox-api.openpay.co',
+    mercadopagoSandbox: process.env.MERCADOPAGO_MODO === 'sandbox',
     origenCheckoutOpenpay: normalizarOrigenHttps(process.env.OPENPAY_CHECKOUT_ORIGIN) ?? undefined,
   })
   const cabeceraCsp = process.env.CSP_SOLO_REPORTE === 'si' ? 'Content-Security-Policy-Report-Only' : 'Content-Security-Policy'

@@ -46,6 +46,9 @@ describe('configuración de build, CI y entorno', () => {
       'RESEND_API_KEY',
       'RESEND_DESDE',
       'RESEND_CORREO_INTERNO',
+      'MERCADOPAGO_ACCESS_TOKEN',
+      'MERCADOPAGO_WEBHOOK_SECRETO_RUTA',
+      'MERCADOPAGO_WEBHOOK_FIRMA_SECRETO',
     ]) {
       const i = lineas.findIndex((l) => l.startsWith(`${variable}=`))
       expect(i, variable).toBeGreaterThan(0)
@@ -57,6 +60,7 @@ describe('configuración de build, CI y entorno', () => {
   it('los adaptadores con secretos de servidor importan server-only', () => {
     for (const ruta of [
       'apps/web/src/modules/donaciones/infrastructure/pasarela-openpay.ts',
+      'apps/web/src/modules/donaciones/infrastructure/pasarela-mercadopago.ts',
       'apps/web/src/modules/donaciones/infrastructure/correos-donacion-resend.ts',
       'apps/web/src/shared/infrastructure/limitador-redis.ts',
       'apps/web/src/shared/infrastructure/notificador-webhook.ts',

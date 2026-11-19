@@ -13,6 +13,7 @@ import { crearListarDonaciones } from '@/modules/donaciones/application/use-case
 import { crearObtenerDonacion } from '@/modules/donaciones/application/use-cases/obtener-donacion'
 import { crearObtenerIndicadores } from '@/modules/donaciones/application/use-cases/obtener-indicadores'
 import { crearEnviadorCorreosResend } from '@/modules/donaciones/infrastructure/correos-donacion-resend'
+import { crearPasarelaMercadoPago } from '@/modules/donaciones/infrastructure/pasarela-mercadopago'
 import { crearPasarelaOpenpay } from '@/modules/donaciones/infrastructure/pasarela-openpay'
 import { crearPasarelaSimulada, type PasarelaSimulada } from '@/modules/donaciones/infrastructure/pasarela-simulada'
 import { crearRepositorioDonacionesMemoria } from '@/modules/donaciones/infrastructure/repositorio-donaciones-memoria'
@@ -116,13 +117,22 @@ function crearContenedor(env: Env) {
         buscarCargoPorReferencia: async () => sinPasarela(),
         listarCargos: async () => sinPasarela(),
       })
-    : crearPasarelaOpenpay({
-        merchantId: env.OPENPAY_MERCHANT_ID ?? '',
-        llavePrivada: env.OPENPAY_PRIVATE_KEY ?? '',
-        urlApi: env.OPENPAY_API_URL ?? '',
-        origenCheckoutExtra: env.OPENPAY_CHECKOUT_ORIGIN,
-        alAdvertir: (mensaje, datos) => registro.advertencia(mensaje, datos),
-      })
+    : env.PASARELA === 'mercadopago'
+      ? crearPasarelaMercadoPago({
+          accessToken: env.MERCADOPAGO_ACCESS_TOKEN ?? '',
+          usarSandbox: env.MERCADOPAGO_MODO === 'sandbox',
+          urlNotificacion: env.MERCADOPAGO_WEBHOOK_SECRETO_RUTA
+            ? `${env.APP_URL}/api/webhooks/mercadopago/${env.MERCADOPAGO_WEBHOOK_SECRETO_RUTA}`
+            : undefined,
+          alAdvertir: (mensaje, datos) => registro.advertencia(mensaje, datos),
+        })
+      : crearPasarelaOpenpay({
+          merchantId: env.OPENPAY_MERCHANT_ID ?? '',
+          llavePrivada: env.OPENPAY_PRIVATE_KEY ?? '',
+          urlApi: env.OPENPAY_API_URL ?? '',
+          origenCheckoutExtra: env.OPENPAY_CHECKOUT_ORIGIN,
+          alAdvertir: (mensaje, datos) => registro.advertencia(mensaje, datos),
+        })
   // Puerto propio de donaciones → caso de uso de donantes (los módulos no se importan entre sí).
   const registroDeDonantes: RegistroDeDonantes = {
     async registrar(datos, quiereCertificado, contexto) {

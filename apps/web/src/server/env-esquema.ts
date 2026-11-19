@@ -48,6 +48,9 @@ export const EsquemaEnv = z
     DATABASE_URL: z.string().startsWith('postgres').optional(),
     DATABASE_URL_DIRECT: z.string().startsWith('postgres').optional(),
 
+    // Pasarela de pagos activa cuando ADAPTADORES=real
+    PASARELA: z.enum(['openpay', 'mercadopago']).default('openpay'),
+
     // Openpay
     OPENPAY_MERCHANT_ID: z.string().min(1).optional(),
     OPENPAY_PRIVATE_KEY: z.string().min(1).optional(),
@@ -61,6 +64,13 @@ export const EsquemaEnv = z
       .refine((u) => new URL(u).protocol === 'https:', 'OPENPAY_CHECKOUT_ORIGIN debe usar https://')
       .transform((u) => new URL(u).origin)
       .optional(),
+
+    // Mercado Pago Colombia (Checkout Pro)
+    MERCADOPAGO_ACCESS_TOKEN: z.string().min(1).optional(),
+    MERCADOPAGO_MODO: z.enum(['produccion', 'sandbox']).default('produccion'),
+    MERCADOPAGO_SANDBOX_EN_PRODUCCION: siNo.default('no'),
+    MERCADOPAGO_WEBHOOK_SECRETO_RUTA: z.string().min(32).optional(),
+    MERCADOPAGO_WEBHOOK_FIRMA_SECRETO: z.string().min(16).optional(),
 
     // Cron de conciliación diaria
     CRON_CONCILIACION_SECRETO: z.string().min(32).optional(),
@@ -94,17 +104,24 @@ export const EsquemaEnv = z
     }
     if (e.ADAPTADORES === 'real') {
       exigir(['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'DATABASE_URL'], 'con ADAPTADORES=real')
-      exigir(
-        [
-          'OPENPAY_MERCHANT_ID',
-          'OPENPAY_PRIVATE_KEY',
-          'OPENPAY_API_URL',
-          'OPENPAY_WEBHOOK_USUARIO',
-          'OPENPAY_WEBHOOK_CONTRASENA',
-          'OPENPAY_WEBHOOK_SECRETO_RUTA',
-        ],
-        'con ADAPTADORES=real',
-      )
+      if (e.PASARELA === 'mercadopago') {
+        exigir(
+          ['MERCADOPAGO_ACCESS_TOKEN', 'MERCADOPAGO_WEBHOOK_SECRETO_RUTA', 'MERCADOPAGO_WEBHOOK_FIRMA_SECRETO'],
+          'con ADAPTADORES=real y PASARELA=mercadopago',
+        )
+      } else {
+        exigir(
+          [
+            'OPENPAY_MERCHANT_ID',
+            'OPENPAY_PRIVATE_KEY',
+            'OPENPAY_API_URL',
+            'OPENPAY_WEBHOOK_USUARIO',
+            'OPENPAY_WEBHOOK_CONTRASENA',
+            'OPENPAY_WEBHOOK_SECRETO_RUTA',
+          ],
+          'con ADAPTADORES=real',
+        )
+      }
       exigir(['CRON_CONCILIACION_SECRETO'], 'con ADAPTADORES=real')
       exigir(['TURNSTILE_SECRET_KEY'], 'con ADAPTADORES=real')
     }
@@ -141,7 +158,7 @@ export const EsquemaEnv = z
     }
     // Llaves de sandbox y producción nunca se mezclan (vault: Pagos en Línea).
     // Excepción explícita para staging/pruebas sandbox bajo NODE_ENV=production (Coolify/VPS).
-    if (e.ADAPTADORES === 'real' && e.OPENPAY_API_URL) {
+    if (e.ADAPTADORES === 'real' && e.PASARELA === 'openpay' && e.OPENPAY_API_URL) {
       if (e.NODE_ENV === 'production') {
         const permiteSandbox = e.OPENPAY_SANDBOX_EN_PRODUCCION === 'si'
         if (e.OPENPAY_API_URL !== OPENPAY_PRODUCCION && !(permiteSandbox && e.OPENPAY_API_URL === OPENPAY_SANDBOX)) {
@@ -157,6 +174,16 @@ export const EsquemaEnv = z
           code: 'custom',
           path: ['OPENPAY_API_URL'],
           message: 'Fuera de producción debe usarse la API sandbox de Openpay',
+        })
+      }
+    }
+    if (e.ADAPTADORES === 'real' && e.PASARELA === 'mercadopago') {
+      if (e.NODE_ENV === 'production' && e.MERCADOPAGO_MODO === 'sandbox' && e.MERCADOPAGO_SANDBOX_EN_PRODUCCION !== 'si') {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['MERCADOPAGO_MODO'],
+          message:
+            'Producción debe usar Mercado Pago en modo produccion (o autorizar sandbox con MERCADOPAGO_SANDBOX_EN_PRODUCCION=si)',
         })
       }
     }

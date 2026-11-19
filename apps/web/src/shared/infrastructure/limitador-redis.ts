@@ -16,7 +16,7 @@ const MARCADOR_IDENTIDAD = ':id:'
 // Fallo ABIERTO solo donde bloquear hace más daño que dejar pasar: el webhook (Openpay
 // reintenta y la consulta autoritativa protege) y la página de resultado (la consulta a
 // la pasarela ya está limitada por donación en la base de datos).
-const PREFIJOS_FALLO_ABIERTO = ['webhook-openpay:', 'resultado-donacion:'] as const
+const PREFIJOS_FALLO_ABIERTO = ['webhook-openpay:', 'webhook-mercadopago:', 'resultado-donacion:'] as const
 
 const SCRIPT_VENTANA_FIJA = `
 local cuenta = redis.call('INCR', KEYS[1])
