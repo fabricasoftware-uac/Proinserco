@@ -17,9 +17,14 @@ Salo: el código del backend ya está terminado y probado. Lo que falta es **con
 
 ## Parte A: antes de desplegar (obligatorio)
 
-### 1. Decide dónde vive la app
-- **VPS con Coolify** (lo planeado) o **Vercel** (donde está ahora).
-- Si te quedas en Vercel, pon `DESPLIEGUE=vercel`.
+### 1. Dónde vive cada cosa (decidido)
+- **La web (Next.js) está en Vercel** → `DESPLIEGUE=vercel`. Por eso:
+  - Redis es **obligatorio** (paso 5): usa **Upstash** (`rediss://…`).
+  - La conciliación diaria ya va por Vercel Cron (paso 10).
+- **Supabase y Postgres están en el VPS de DigitalOcean.** Vercel se conecta a ellos por Internet, así que:
+  - la conexión a Postgres debe ir **con TLS** (`sslmode=require`), con contraseñas largas, y solo al pooler (6543); nunca abras el 5432 al público;
+  - el gateway de Supabase va con HTTPS y un dominio (por ejemplo `api.proinserco.org`), no con una IP;
+  - Studio y Redis (si hubiera uno en el VPS) **no** se exponen a Internet.
 
 ### 2. Haz un backup de la base de datos
 Una copia completa antes de tocar nada. Guárdala fuera del repo.
@@ -129,7 +134,7 @@ La lista completa de 9 pruebas está en el paso 9 de la guía larga.
 
 ## Lista para marcar
 
-- [ ] 1. Decidido: VPS o Vercel
+- [ ] 1. Web en Vercel y Supabase en el VPS, con TLS y sin puertos de más abiertos
 - [ ] 2. Backup hecho
 - [ ] 3. Migraciones aplicadas y verificadas
 - [ ] 4. Turnstile real creado y claves puestas
