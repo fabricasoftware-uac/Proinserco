@@ -119,6 +119,7 @@ describe('crearIdentityProviderSupabase', () => {
     const insertBloqueo = consultas.find((c) => c.sql.includes('insert into "bloqueos_acceso"'))
     expect(insertBloqueo?.params).toContain(hashEsperado)
     expect(insertBloqueo?.sql).toContain('on conflict ("identificador_hash") do update')
+    expect(insertBloqueo?.sql).toContain('::timestamptz')
 
     // Si existe bloqueo vigente, lanza DemasiadasPeticiones antes de llamar a Supabase Auth
     const { db: dbBloqueado } = crearDbInstrumentada(() => [[futuro.toISOString()]])

@@ -7,6 +7,7 @@ import { conTransaccionDb } from '@/server/db/contexto-db'
 import { bloqueosAcceso, perfiles } from '@/server/db/schema'
 import { obtenerEnv } from '@/server/env'
 import { nombresCookies } from '@/server/nombres-cookies'
+import { registro } from '@/server/registro'
 import type { Reloj } from '@/shared/application/ports/reloj'
 import { DemasiadasPeticiones } from '@/shared/domain/errores'
 import { crearRelojSistema } from '@/shared/infrastructure/reloj'
@@ -304,6 +305,14 @@ export function crearIdentityProviderSupabase(config: ConfiguracionSupabaseAuth)
       })
 
       if (error || !data.user) {
+        if (error && error.code !== 'invalid_credentials') {
+          registro.advertencia('Fallo en signInWithPassword de Supabase Auth', {
+            nombre: error.name,
+            estado: error.status,
+            codigo: error.code,
+            mensaje: error.message,
+          })
+        }
         const momentoFallo = reloj.ahora()
         const bloqueo3 = new Date(momentoFallo.getTime() + SEGUNDOS_BLOQUEO_3_FALLOS * 1000)
         const bloqueo4 = new Date(momentoFallo.getTime() + SEGUNDOS_BLOQUEO_4_FALLOS * 1000)
@@ -326,12 +335,12 @@ export function crearIdentityProviderSupabase(config: ConfiguracionSupabaseAuth)
                 target: bloqueosAcceso.identificadorHash,
                 set: {
                   fallosConsecutivos: sql`${bloqueosAcceso.fallosConsecutivos} + 1`,
-                  primerFalloEn: sql`COALESCE(${bloqueosAcceso.primerFalloEn}, ${sql.param(momentoFallo, bloqueosAcceso.primerFalloEn)})`,
+                  primerFalloEn: sql`COALESCE(${bloqueosAcceso.primerFalloEn}, (${sql.param(momentoFallo, bloqueosAcceso.primerFalloEn)})::timestamptz)`,
                   ultimoFalloEn: momentoFallo,
                   bloqueadoHasta: sql`CASE
-                    WHEN ${bloqueosAcceso.fallosConsecutivos} + 1 >= 5 THEN ${sql.param(bloqueo5, bloqueosAcceso.bloqueadoHasta)}
-                    WHEN ${bloqueosAcceso.fallosConsecutivos} + 1 = 4 THEN ${sql.param(bloqueo4, bloqueosAcceso.bloqueadoHasta)}
-                    WHEN ${bloqueosAcceso.fallosConsecutivos} + 1 = 3 THEN ${sql.param(bloqueo3, bloqueosAcceso.bloqueadoHasta)}
+                    WHEN ${bloqueosAcceso.fallosConsecutivos} + 1 >= 5 THEN (${sql.param(bloqueo5, bloqueosAcceso.bloqueadoHasta)})::timestamptz
+                    WHEN ${bloqueosAcceso.fallosConsecutivos} + 1 = 4 THEN (${sql.param(bloqueo4, bloqueosAcceso.bloqueadoHasta)})::timestamptz
+                    WHEN ${bloqueosAcceso.fallosConsecutivos} + 1 = 3 THEN (${sql.param(bloqueo3, bloqueosAcceso.bloqueadoHasta)})::timestamptz
                     ELSE NULL
                   END`,
                   actualizadoEn: momentoFallo,
