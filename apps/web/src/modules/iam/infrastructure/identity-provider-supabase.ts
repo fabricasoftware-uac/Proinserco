@@ -326,13 +326,15 @@ export function crearIdentityProviderSupabase(config: ConfiguracionSupabaseAuth)
                 target: bloqueosAcceso.identificadorHash,
                 set: {
                   fallosConsecutivos: sql`${bloqueosAcceso.fallosConsecutivos} + 1`,
-                  primerFalloEn: sql`COALESCE(${bloqueosAcceso.primerFalloEn}, ${sql.param(momentoFallo, bloqueosAcceso.primerFalloEn)})`,
+                  // Los parámetros viajan sin tipo: dentro de CASE/COALESCE Postgres los
+                  // resuelve como `text` y falla al asignarlos a `timestamptz`. Cast explícito.
+                  primerFalloEn: sql`COALESCE(${bloqueosAcceso.primerFalloEn}, ${sql.param(momentoFallo, bloqueosAcceso.primerFalloEn)}::timestamptz)`,
                   ultimoFalloEn: momentoFallo,
                   bloqueadoHasta: sql`CASE
-                    WHEN ${bloqueosAcceso.fallosConsecutivos} + 1 >= 5 THEN ${sql.param(bloqueo5, bloqueosAcceso.bloqueadoHasta)}
-                    WHEN ${bloqueosAcceso.fallosConsecutivos} + 1 = 4 THEN ${sql.param(bloqueo4, bloqueosAcceso.bloqueadoHasta)}
-                    WHEN ${bloqueosAcceso.fallosConsecutivos} + 1 = 3 THEN ${sql.param(bloqueo3, bloqueosAcceso.bloqueadoHasta)}
-                    ELSE NULL
+                    WHEN ${bloqueosAcceso.fallosConsecutivos} + 1 >= 5 THEN ${sql.param(bloqueo5, bloqueosAcceso.bloqueadoHasta)}::timestamptz
+                    WHEN ${bloqueosAcceso.fallosConsecutivos} + 1 = 4 THEN ${sql.param(bloqueo4, bloqueosAcceso.bloqueadoHasta)}::timestamptz
+                    WHEN ${bloqueosAcceso.fallosConsecutivos} + 1 = 3 THEN ${sql.param(bloqueo3, bloqueosAcceso.bloqueadoHasta)}::timestamptz
+                    ELSE NULL::timestamptz
                   END`,
                   actualizadoEn: momentoFallo,
                 },
