@@ -13,7 +13,7 @@ import { VerificacionAntiBots } from './verificacion-antibots'
 
 type Props = {
   minimoPesos: number
-  maximoPesos: number
+  maximoPesos?: number | undefined
   montosSugeridos: readonly number[]
   montoInicial: number | null
   lineaInicial: LineaApoyo
@@ -68,7 +68,7 @@ function nivelAro(monto: number, sugeridos: readonly number[]) {
 const FORMATO_MILES = new Intl.NumberFormat('es-CO')
 
 function soloDigitos(v: string): string {
-  return v.replace(/\D/g, '').slice(0, 10).replace(/^0+/, '')
+  return v.replace(/\D/g, '').slice(0, 12).replace(/^0+/, '')
 }
 
 export function FormularioDonar(props: Props) {
@@ -98,7 +98,8 @@ export function FormularioDonar(props: Props) {
   const idAro = `aro-${idBase.replace(/[^\w-]/g, '')}`
 
   const montoNumero = monto ? Number(monto) : 0
-  const montoValido = Number.isSafeInteger(montoNumero) && montoNumero >= minimoPesos && montoNumero <= maximoPesos
+  const montoValido =
+    Number.isSafeInteger(montoNumero) && montoNumero >= minimoPesos && (maximoPesos === undefined || montoNumero <= maximoPesos)
 
   // Foco al encabezado del paso (no en el primer render: no se roba el foco al cargar).
   // biome-ignore lint/correctness/useExhaustiveDependencies: solo reacciona al cambio de paso
@@ -176,8 +177,12 @@ export function FormularioDonar(props: Props) {
   function validar(): Errores {
     const e: Errores = {}
     const r = FormularioDonacion.safeParse(entrada(autorizo))
-    if (!montoValido)
-      e.montoPesos = `Elige o escribe un monto entre ${formatearPesos(minimoPesos)} y ${formatearPesos(maximoPesos)}`
+    if (!montoValido) {
+      e.montoPesos =
+        maximoPesos !== undefined
+          ? `Elige o escribe un monto entre ${formatearPesos(minimoPesos)} y ${formatearPesos(maximoPesos)}`
+          : `Elige o escribe un monto de al menos ${formatearPesos(minimoPesos)}`
+    }
     if (!r.success) {
       for (const i of r.error.issues) {
         const ruta = i.path.join('.')
@@ -294,7 +299,11 @@ export function FormularioDonar(props: Props) {
               <Campo
                 id={id('montoPesos')}
                 etiqueta="O escribe otro monto (en pesos colombianos)"
-                ayuda={`Mínimo ${formatearPesos(minimoPesos)}. Máximo ${formatearPesos(maximoPesos)}.`}
+                ayuda={
+                  maximoPesos !== undefined
+                    ? `Mínimo ${formatearPesos(minimoPesos)}. Máximo ${formatearPesos(maximoPesos)}.`
+                    : `Mínimo ${formatearPesos(minimoPesos)}.`
+                }
                 error={errores.montoPesos}
               >
                 {(aria) => (

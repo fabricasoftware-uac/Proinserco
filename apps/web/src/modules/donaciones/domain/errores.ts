@@ -16,9 +16,13 @@ export class MontoFueraDeRango extends ErrorDeDominio {
   override readonly esPublico = true
   constructor(
     readonly minimoPesos: number,
-    readonly maximoPesos: number,
+    readonly maximoPesos?: number,
   ) {
-    super(`El monto debe estar entre ${minimoPesos} y ${maximoPesos} pesos`)
+    super(
+      maximoPesos !== undefined
+        ? `El monto debe estar entre ${minimoPesos} y ${maximoPesos} pesos`
+        : `El monto debe ser de al menos ${minimoPesos} pesos`,
+    )
   }
 }
 

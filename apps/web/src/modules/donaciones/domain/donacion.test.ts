@@ -76,4 +76,8 @@ describe('monto de la donación (decidido en servidor)', () => {
   it.each([1, 9_999, 20_000_001, 1.5, -100])('rechaza %s pesos (fuera de rango o no entero)', (monto) => {
     expect(() => importeDeDonacion(monto, limites)).toThrow(MontoFueraDeRango)
   })
+
+  it('admite montos altos sin tope cuando maximoPesos no está definido', () => {
+    expect(importeDeDonacion(100_000_000, { minimoPesos: 10_000 })).toEqual({ centavos: 10_000_000_000n, moneda: 'COP' })
+  })
 })

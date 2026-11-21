@@ -8,7 +8,7 @@ import { envPublico } from '@/shared/env-publico'
 
 export const metadata: Metadata = {
   title: 'Donar',
-  description: 'Dona a la Fundación Proinserco de forma segura. El pago se hace en la página protegida de Openpay.',
+  description: 'Dona a la Fundación Proinserco de forma segura a través de nuestra pasarela de pagos protegida.',
 }
 
 type Busqueda = Promise<Record<string, string | string[] | undefined>>
@@ -21,8 +21,9 @@ export default async function PaginaDonar({ searchParams }: { searchParams: Busq
   const maximoPesos = env.DONACION_MONTO_MAXIMO_COP
 
   // `?monto=` de la URL solo precarga: el servidor vuelve a validar todo.
-  const montoUrl = typeof monto === 'string' && /^\d{1,10}$/.test(monto) ? Number(monto) : null
-  const montoInicial = montoUrl !== null && montoUrl >= minimoPesos && montoUrl <= maximoPesos ? montoUrl : null
+  const montoUrl = typeof monto === 'string' && /^\d{1,12}$/.test(monto) ? Number(monto) : null
+  const montoInicial =
+    montoUrl !== null && montoUrl >= minimoPesos && (maximoPesos === undefined || montoUrl <= maximoPesos) ? montoUrl : null
   const lineaInicial = LineaApoyo.safeParse(typeof linea === 'string' ? linea : undefined).data ?? 'donde-mas-se-necesite'
 
   return (

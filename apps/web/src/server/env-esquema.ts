@@ -37,7 +37,7 @@ export const EsquemaEnv = z
 
     DONACIONES_HABILITADAS: siNo.default('si'),
     DONACION_MONTO_MINIMO_COP: z.coerce.number().int().positive().default(10_000),
-    DONACION_MONTO_MAXIMO_COP: z.coerce.number().int().positive().default(20_000_000),
+    DONACION_MONTO_MAXIMO_COP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
 
     CSP_SOLO_REPORTE: siNo.default('no'),
 
@@ -197,7 +197,7 @@ export const EsquemaEnv = z
           'Obligatoria en despliegues serverless (DESPLIEGUE=vercel o VERCEL definido): el limitador en memoria solo vale con UNA instancia. Usa un Redis compartido (rediss://, p. ej. Upstash)',
       })
     }
-    if (e.DONACION_MONTO_MINIMO_COP >= e.DONACION_MONTO_MAXIMO_COP) {
+    if (e.DONACION_MONTO_MAXIMO_COP !== undefined && e.DONACION_MONTO_MINIMO_COP >= e.DONACION_MONTO_MAXIMO_COP) {
       ctx.addIssue({ code: 'custom', path: ['DONACION_MONTO_MINIMO_COP'], message: 'El mínimo debe ser menor que el máximo' })
     }
     if (e.RESEND_API_KEY && !e.RESEND_DESDE) {
