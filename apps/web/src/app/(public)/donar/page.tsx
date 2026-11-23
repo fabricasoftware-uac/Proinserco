@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { FormularioDonar } from '@/flujos/donar/formulario-donar'
+import { TransferenciaInternacional } from '@/flujos/donar/transferencia-internacional'
 import { CONTENIDO_SITIO } from '@/modules/contenido'
 import { LineaApoyo } from '@/modules/donaciones'
 import { nonceCsp } from '@/server/contexto-peticion'
@@ -56,6 +57,17 @@ export default async function PaginaDonar({ searchParams }: { searchParams: Busq
           antibots={env.antibots}
           siteKey={envPublico.NEXT_PUBLIC_TURNSTILE_SITE_KEY}
           nonce={await nonceCsp()}
+        />
+        <TransferenciaInternacional
+          beneficiario={CONTENIDO_SITIO.organizacion.razonSocial}
+          nit={CONTENIDO_SITIO.organizacion.nit}
+          banco={CONTENIDO_SITIO.donar.transferenciaInternacional.banco}
+          codigoSwift={CONTENIDO_SITIO.donar.transferenciaInternacional.codigoSwift}
+          tipoCuenta={CONTENIDO_SITIO.donar.transferenciaInternacional.tipoCuenta}
+          numeroCuenta={CONTENIDO_SITIO.donar.transferenciaInternacional.numeroCuenta}
+          direccion={`${CONTENIDO_SITIO.contacto.direccion}, ${CONTENIDO_SITIO.contacto.barrio}, ${CONTENIDO_SITIO.contacto.ciudad}, ${CONTENIDO_SITIO.contacto.departamento}, ${CONTENIDO_SITIO.contacto.pais}`}
+          telefono={CONTENIDO_SITIO.contacto.telefono}
+          correoComprobante={CONTENIDO_SITIO.donar.transferenciaInternacional.correoComprobante}
         />
       </div>
     </main>

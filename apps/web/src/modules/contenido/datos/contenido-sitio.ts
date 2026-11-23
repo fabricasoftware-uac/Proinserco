@@ -260,6 +260,13 @@ export const CONTENIDO_SITIO = {
     llamado: 'Tu generosidad tiene el poder de transformar vidas.',
     montosSugeridosPesos: [20_000, 50_000, 100_000, 200_000],
     nota: 'TODO-CONTENIDO: confirmar montos sugeridos, destino de los fondos y si la fundación expide certificado de donación (RTE)',
+    transferenciaInternacional: {
+      banco: 'Banco Bilbao Vizcaya Argentaria Colombia S.A. (BBVA Colombia)',
+      codigoSwift: 'GEROCOBB',
+      tipoCuenta: 'Cuenta de Ahorros',
+      numeroCuenta: '0721467348',
+      correoComprobante: 'pagos@proinserco.org',
+    },
   },
 
   cierre: 'Gracias. Proinserco, al servicio de la comunidad.',

@@ -97,6 +97,13 @@ export const ContenidoSitio = z.object({
     /** Sugerencias de la interfaz; el rango permitido lo valida el servidor (env). */
     montosSugeridosPesos: z.array(z.number().int().positive()).min(1),
     nota: Texto,
+    transferenciaInternacional: z.object({
+      banco: Texto,
+      codigoSwift: Texto,
+      tipoCuenta: Texto,
+      numeroCuenta: Texto,
+      correoComprobante: z.email(),
+    }),
   }),
   cierre: Texto,
   legal: z.object({
