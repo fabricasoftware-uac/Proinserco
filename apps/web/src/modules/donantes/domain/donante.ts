@@ -31,13 +31,18 @@ export const DatosDonante = z.strictObject({
     .email('Correo no válido')
     .max(254)
     .transform((v) => v.toLowerCase()),
-  /** Celular colombiano, se normaliza a +57XXXXXXXXXX. */
+  /** Celular colombiano (3XXXXXXXXX → +573XXXXXXXXX) o teléfono internacional en formato E.164 (+<código><número>). */
   celular: z
     .string()
     .trim()
-    .transform((v) => v.replace(/[\s()-]/g, '').replace(/^(\+?57)/, ''))
-    .pipe(z.string().regex(/^3\d{9}$/, 'Celular colombiano de 10 dígitos'))
-    .transform((v) => `+57${v}`),
+    .transform((v) => {
+      const limpio = v.replace(/[\s().-]/g, '')
+      if (limpio.startsWith('+')) return limpio
+      if (/^573\d{9}$/.test(limpio)) return `+${limpio}`
+      if (/^3\d{9}$/.test(limpio)) return `+57${limpio}`
+      return limpio
+    })
+    .pipe(z.string().regex(/^\+[1-9]\d{6,14}$/, 'Celular colombiano de 10 dígitos o teléfono internacional con +código')),
 })
 export type DatosDonante = z.infer<typeof DatosDonante>
 export type DatosDonanteEntrada = z.input<typeof DatosDonante>

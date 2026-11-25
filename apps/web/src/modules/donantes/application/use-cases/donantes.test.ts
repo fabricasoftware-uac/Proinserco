@@ -32,6 +32,33 @@ describe('datos del donante', () => {
     expect(DatosDonante.safeParse({ ...base, celular: '6012345678' }).success).toBe(false)
   })
 
+  it('acepta pasaporte alfanumérico y teléfonos internacionales en formato E.164', () => {
+    const usa = DatosDonante.parse({
+      nombres: 'John',
+      apellidos: "O'Connor",
+      tipoDocumento: 'PA',
+      numeroDocumento: ' AB-123456 ',
+      correo: 'JOHN@Example.ORG',
+      celular: '+1 (305) 555-1234',
+    })
+    expect(usa).toMatchObject({
+      tipoDocumento: 'PA',
+      numeroDocumento: 'AB-123456',
+      correo: 'john@example.org',
+      celular: '+13055551234',
+    })
+
+    const esp = DatosDonante.parse({
+      nombres: 'María',
+      apellidos: 'García',
+      tipoDocumento: 'PA',
+      numeroDocumento: 'ESP987654',
+      correo: 'maria@ejemplo.es',
+      celular: '+34 612 345 678',
+    })
+    expect(esp.celular).toBe('+34612345678')
+  })
+
   it('la autorización de datos solo vale si es true (casilla no premarcada)', () => {
     expect(AutorizacionDatos.safeParse(true).success).toBe(true)
     expect(AutorizacionDatos.safeParse(false).success).toBe(false)

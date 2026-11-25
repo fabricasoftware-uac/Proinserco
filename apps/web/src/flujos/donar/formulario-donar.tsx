@@ -419,7 +419,7 @@ export function FormularioDonar(props: Props) {
                     <input
                       id={id('donante.numeroDocumento')}
                       type="text"
-                      inputMode="numeric"
+                      inputMode={tipoDocumento === 'PA' || tipoDocumento === 'CE' ? 'text' : 'numeric'}
                       autoComplete="off"
                       maxLength={24}
                       value={numeroDocumento}
@@ -451,8 +451,8 @@ export function FormularioDonar(props: Props) {
                 </Campo>
                 <Campo
                   id={id('donante.celular')}
-                  etiqueta="Celular"
-                  ayuda="10 dígitos, por ejemplo 300 123 4567."
+                  etiqueta="Celular / Teléfono"
+                  ayuda="En Colombia: 300 123 4567. Desde el exterior incluye indicativo, ej. +1 305 555 1234."
                   error={errores['donante.celular']}
                 >
                   {(aria) => (
@@ -460,7 +460,7 @@ export function FormularioDonar(props: Props) {
                       id={id('donante.celular')}
                       type="tel"
                       inputMode="tel"
-                      autoComplete="tel-national"
+                      autoComplete="tel"
                       maxLength={20}
                       value={celular}
                       onChange={alEscribir(setCelular)}
@@ -670,7 +670,8 @@ const MENSAJES: Record<string, string> = {
   'donante.tipoDocumento': 'Elige el tipo de documento',
   'donante.numeroDocumento': 'Escribe un número de documento válido (4 a 20 caracteres)',
   'donante.correo': 'Escribe un correo válido, por ejemplo nombre@correo.com',
-  'donante.celular': 'Escribe un celular colombiano de 10 dígitos que empiece por 3',
+  'donante.celular':
+    'Escribe un celular colombiano (ej. 300 123 4567) o un teléfono internacional con indicativo (ej. +1 305 555 1234)',
   autorizacionDatos: 'Debes autorizar el tratamiento de tus datos para poder donar',
   tokenAntiBots: 'Completa la verificación de seguridad',
   montoPesos: 'Revisa el monto',

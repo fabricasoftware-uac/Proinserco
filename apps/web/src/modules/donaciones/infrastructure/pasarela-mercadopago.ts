@@ -53,12 +53,19 @@ const RespuestaPagoMercadoPago = z.object({
   id: z.union([z.number().int().positive(), z.string().min(1).max(40)]).transform((v) => String(v)),
   external_reference: z.string().max(120).nullable().optional(),
   status: z.string().min(1).max(60),
+  status_detail: z.string().max(120).nullable().optional(),
   transaction_amount: z.number(),
   currency_id: z.string().min(1).max(10).nullable().optional(),
   payment_type_id: z.string().max(40).nullable().optional(),
   payment_method_id: z.string().max(40).nullable().optional(),
+  issuer_id: z
+    .union([z.string().max(40), z.number().int()])
+    .transform((v) => String(v))
+    .nullable()
+    .optional(),
   card: z
     .object({
+      first_six_digits: z.string().max(10).nullable().optional(),
       last_four_digits: z.string().max(10).nullable().optional(),
     })
     .nullable()
@@ -277,6 +284,17 @@ export function crearPasarelaMercadoPago(config: ConfiguracionMercadoPago): Pasa
         estado: estadoDesconocido,
       })
       throw new Error(`Mercado Pago consultarCargo devolvió estado desconocido: ${estadoDesconocido}`)
+    }
+    if (cargo.estado === 'rechazado') {
+      config.alAdvertir?.('Mercado Pago rechazó un pago', {
+        idCargo: idPago,
+        estadoMercadoPago: parseado.data.status,
+        detalleEstado: parseado.data.status_detail ?? null,
+        metodoPago: parseado.data.payment_method_id ?? null,
+        tipoPago: parseado.data.payment_type_id ?? null,
+        emisorId: parseado.data.issuer_id ?? null,
+        bin: parseado.data.card?.first_six_digits ?? null,
+      })
     }
     return cargo
   }
